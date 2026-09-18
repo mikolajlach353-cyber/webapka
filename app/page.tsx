@@ -1519,217 +1519,110 @@ export default function Home() {
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#07090d] px-4 py-8 text-white sm:py-12">
       <style jsx global>{`
-        @keyframes borderFlow {
-          0% {
-            background-position: 0% 50%;
-          }
-
-          50% {
-            background-position: 100% 50%;
-          }
-
-          100% {
-            background-position: 0% 50%;
-          }
-        }
-
         @keyframes titanLineMove {
-          0% {
-            transform: translate3d(-8%, 0, 0);
-            opacity: 0;
-          }
+  0% {
+    transform: translate3d(-70vw, 0, 0);
+    opacity: 0;
+  }
 
-          12% {
-            opacity: 0.18;
-          }
+  12% {
+    opacity: 0.9;
+  }
 
-          50% {
-            opacity: 0.1;
-          }
+  50% {
+    opacity: 0.45;
+  }
 
-          88% {
-            opacity: 0.18;
-          }
+  88% {
+    opacity: 0.9;
+  }
 
-          100% {
-            transform: translate3d(8%, 0, 0);
-            opacity: 0;
-          }
-        }
+  100% {
+    transform: translate3d(130vw, 0, 0);
+    opacity: 0;
+  }
+}
 
-        @keyframes titanLineMoveReverse {
-          0% {
-            transform: translate3d(8%, 0, 0);
-            opacity: 0;
-          }
+@keyframes titanLineMoveReverse {
+  0% {
+    transform: translate3d(130vw, 0, 0);
+    opacity: 0;
+  }
 
-          12% {
-            opacity: 0.13;
-          }
+  12% {
+    opacity: 0.7;
+  }
 
-          50% {
-            opacity: 0.07;
-          }
+  50% {
+    opacity: 0.35;
+  }
 
-          88% {
-            opacity: 0.13;
-          }
+  88% {
+    opacity: 0.7;
+  }
 
-          100% {
-            transform: translate3d(-8%, 0, 0);
-            opacity: 0;
-          }
-        }
+  100% {
+    transform: translate3d(-70vw, 0, 0);
+    opacity: 0;
+  }
+}
 
-        .titan-lines {
-          position: fixed;
-          inset: 0;
-          z-index: 0;
-          pointer-events: none;
-          overflow: hidden;
-          contain: strict;
-        }
+.titan-lines {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+}
 
-        .titan-lines::before,
-        .titan-lines::after {
-          content: "";
-          position: absolute;
-          inset: -20%;
-          background-image:
-            linear-gradient(
-              115deg,
-              transparent 0%,
-              transparent 47%,
-              rgba(255, 255, 255, 0.055) 48%,
-              rgba(255, 255, 255, 0.055) 48.15%,
-              transparent 49%,
-              transparent 100%
-            );
-          background-size: 310px 310px;
-          animation: titanLineMove 32s linear infinite;
-          will-change: transform;
-        }
+.titan-lines::before,
+.titan-lines::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  width: 65vw;
+  height: 1px;
 
-        .titan-lines::after {
-          background-size: 420px 420px;
-          animation:
-            titanLineMoveReverse 43s linear infinite;
-          opacity: 0.55;
-        }
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0) 8%,
+    rgba(255, 255, 255, 0.16) 45%,
+    rgba(255, 255, 255, 0.22) 50%,
+    rgba(255, 255, 255, 0.16) 55%,
+    rgba(255, 255, 255, 0) 92%,
+    transparent 100%
+  );
 
-        .animated-border {
-          position: relative;
-          padding: 1px;
-          border-radius: 31px;
-          background: linear-gradient(
-            120deg,
-            rgba(59, 130, 246, 0.18),
-            rgba(96, 165, 250, 0.55),
-            rgba(139, 92, 246, 0.28),
-            rgba(34, 211, 238, 0.38),
-            rgba(59, 130, 246, 0.18)
-          );
-          background-size: 300% 300%;
-          animation: borderFlow 8s ease infinite;
-          box-shadow:
-            0 0 0 1px rgba(255, 255, 255, 0.015),
-            0 0 35px rgba(59, 130, 246, 0.035);
-          transition:
-            box-shadow 300ms ease,
-            filter 300ms ease;
-        }
+  box-shadow:
+    0 0 8px rgba(255, 255, 255, 0.08);
 
-        .animated-border:hover {
-          box-shadow:
-            0 0 0 1px rgba(255, 255, 255, 0.025),
-            0 0 42px rgba(59, 130, 246, 0.07);
-        }
+  will-change: transform, opacity;
+}
 
-        .animated-border-inner {
-          height: 100%;
-          border-radius: 30px;
-          background: rgba(10, 12, 17, 0.94);
-        }
+.titan-lines::before {
+  top: 22%;
+  animation: titanLineMove 24s linear infinite;
+}
 
-        .animated-choice {
-          position: relative;
-          padding: 1px;
-          border-radius: 31px;
-          background: linear-gradient(
-            120deg,
-            rgba(59, 130, 246, 0.12),
-            rgba(96, 165, 250, 0.45),
-            rgba(139, 92, 246, 0.2),
-            rgba(34, 211, 238, 0.3),
-            rgba(59, 130, 246, 0.12)
-          );
-          background-size: 300% 300%;
-          animation: borderFlow 9s ease infinite;
-          transition:
-            transform 300ms ease,
-            box-shadow 300ms ease,
-            filter 300ms ease;
-        }
+.titan-lines::after {
+  top: 68%;
+  width: 50vw;
+  opacity: 0.7;
 
-        .animated-choice:hover {
-          transform: translateY(-4px);
-          box-shadow:
-            0 15px 50px rgba(0, 0, 0, 0.28),
-            0 0 35px rgba(59, 130, 246, 0.09);
-          filter: brightness(1.06);
-        }
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0) 8%,
+    rgba(255, 255, 255, 0.11) 45%,
+    rgba(255, 255, 255, 0.17) 50%,
+    rgba(255, 255, 255, 0.11) 55%,
+    rgba(255, 255, 255, 0) 92%,
+    transparent 100%
+  );
 
-        .animated-choice > button {
-          width: 100%;
-          height: 100%;
-          border-radius: 30px;
-        }
-
-        .titan-interactive {
-          transition:
-            background-color 220ms ease,
-            border-color 220ms ease,
-            color 220ms ease,
-            box-shadow 220ms ease,
-            transform 220ms ease;
-        }
-
-        .titan-interactive:hover {
-          border-color: rgba(255, 255, 255, 0.12);
-          background-color: rgba(255, 255, 255, 0.045);
-          box-shadow:
-            0 8px 30px rgba(0, 0, 0, 0.16),
-            0 0 20px rgba(255, 255, 255, 0.025);
-        }
-
-        .ranking-row {
-          transition:
-            background-color 220ms ease,
-            box-shadow 220ms ease,
-            transform 220ms ease;
-        }
-
-        .ranking-row:hover {
-          background-color: rgba(255, 255, 255, 0.035);
-          box-shadow:
-            inset 3px 0 0 rgba(96, 165, 250, 0.3);
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .titan-lines::before,
-          .titan-lines::after,
-          .animated-border,
-          .animated-choice {
-            animation: none !important;
-          }
-
-          .animated-choice,
-          .animated-border,
-          .titan-interactive,
-          .ranking-row {
-            transition: none !important;
-          }
-        }
+  animation: titanLineMoveReverse 34s linear infinite;
+}
       `}</style>
 
       <div className="titan-lines" />
