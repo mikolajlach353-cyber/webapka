@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
@@ -43,9 +44,20 @@ const options = [
   },
 ];
 
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return year + "-" + month + "-" + day;
+}
+
+function getTodayDate() {
+  return formatLocalDate(new Date());
+}
+
 function getWeekDates() {
   const now = new Date();
-
   const day = now.getDay();
   const diff = day === 0 ? -6 : 1 - day;
 
@@ -55,17 +67,9 @@ function getWeekDates() {
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
 
-  const formatDate = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-
-    return `${year}-${month}-${day}`;
-  };
-
   return {
-    monday: formatDate(monday),
-    sunday: formatDate(sunday),
+    monday: formatLocalDate(monday),
+    sunday: formatLocalDate(sunday),
   };
 }
 
@@ -109,22 +113,6 @@ function formatActivityDate(dateString: string) {
   }).format(date);
 }
 
-function formatLocalDate(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-}
-
-function getTodayDate() {
-  return formatLocalDate(new Date());
-}
-
-// =========================================================
-// STREAK CALCULATION
-// =========================================================
-
 function calculateStreaks(activities: Activity[]) {
   const uniqueDates = Array.from(
     new Set(activities.map((activity) => activity.choice_date))
@@ -157,7 +145,6 @@ function calculateStreaks(activities: Activity[]) {
   }
 
   const today = new Date(`${getTodayDate()}T12:00:00`);
-
   const lastDate = new Date(
     `${uniqueDates[uniqueDates.length - 1]}T12:00:00`
   );
@@ -202,10 +189,6 @@ function calculateStreaks(activities: Activity[]) {
   };
 }
 
-// =========================================================
-// ANIMATED FRAME
-// =========================================================
-
 function AnimatedFrame({
   children,
   className = "",
@@ -215,16 +198,10 @@ function AnimatedFrame({
 }) {
   return (
     <div className={`animated-border ${className}`}>
-      <div className="animated-border-inner">
-        {children}
-      </div>
+      <div className="animated-border-inner">{children}</div>
     </div>
   );
 }
-
-// =========================================================
-// SCORE CIRCLE
-// =========================================================
 
 function ScoreCircle({ score }: { score: number }) {
   const progress = Math.min(100, Math.max(0, score));
@@ -233,8 +210,7 @@ function ScoreCircle({ score }: { score: number }) {
   const circumference = 2 * Math.PI * radius;
 
   const offset =
-    circumference -
-    (progress / 100) * circumference;
+    circumference - (progress / 100) * circumference;
 
   return (
     <div className="relative mx-auto h-56 w-56 sm:h-64 sm:w-64">
@@ -279,20 +255,9 @@ function ScoreCircle({ score }: { score: number }) {
             x2="100%"
             y2="100%"
           >
-            <stop
-              offset="0%"
-              stopColor="#ffffff"
-            />
-
-            <stop
-              offset="45%"
-              stopColor="#bfdbfe"
-            />
-
-            <stop
-              offset="100%"
-              stopColor="#3b82f6"
-            />
+            <stop offset="0%" stopColor="#ffffff" />
+            <stop offset="45%" stopColor="#bfdbfe" />
+            <stop offset="100%" stopColor="#3b82f6" />
           </linearGradient>
         </defs>
       </svg>
@@ -309,10 +274,6 @@ function ScoreCircle({ score }: { score: number }) {
     </div>
   );
 }
-
-// =========================================================
-// SECTION HEADER
-// =========================================================
 
 function SectionHeader({
   eyebrow,
@@ -350,10 +311,6 @@ function SectionHeader({
   );
 }
 
-// =========================================================
-// STAT ITEM
-// =========================================================
-
 function StatItem({
   label,
   value,
@@ -384,9 +341,7 @@ function StatItem({
 
         <p
           className={`mt-0.5 truncate text-sm font-bold ${
-            accent
-              ? "text-blue-300"
-              : "text-zinc-200"
+            accent ? "text-blue-300" : "text-zinc-200"
           }`}
         >
           {value}
@@ -395,10 +350,6 @@ function StatItem({
     </div>
   );
 }
-
-// =========================================================
-// MAIN
-// =========================================================
 
 export default function Home() {
   const [participants, setParticipants] =
@@ -440,19 +391,14 @@ export default function Home() {
   const [error, setError] =
     useState<string | null>(null);
 
-  // =========================================================
-  // ZAPISANY UŻYTKOWNIK
-  // =========================================================
-
   function getSavedParticipant(): Participant | null {
     if (typeof window === "undefined") {
       return null;
     }
 
-    const saved =
-      localStorage.getItem(
-        "daily-challenge-user"
-      );
+    const saved = localStorage.getItem(
+      "daily-challenge-user"
+    );
 
     if (!saved) {
       return null;
@@ -486,10 +432,6 @@ export default function Home() {
     window.location.reload();
   }
 
-  // =========================================================
-  // POBIERANIE DANYCH
-  // =========================================================
-
   async function loadData(
     participantOverride?: Participant
   ) {
@@ -509,15 +451,10 @@ export default function Home() {
         setActivities([]);
         setStreakActivities([]);
         setSelected(null);
-
         return;
       }
 
       setCurrentParticipant(current);
-
-      // =====================================================
-      // AKTUALNY UCZESTNIK Z BAZY
-      // =====================================================
 
       const {
         data: freshParticipant,
@@ -538,17 +475,8 @@ export default function Home() {
       const activeParticipant =
         freshParticipant ?? current;
 
-      setCurrentParticipant(
-        activeParticipant
-      );
-
-      saveParticipant(
-        activeParticipant
-      );
-
-      // =====================================================
-      // RANKING
-      // =====================================================
+      setCurrentParticipant(activeParticipant);
+      saveParticipant(activeParticipant);
 
       const {
         data: participantsData,
@@ -561,33 +489,16 @@ export default function Home() {
         });
 
       if (participantsError) {
-        console.error(
-          "Błąd pobierania uczestników:",
-          participantsError
-        );
-
         throw participantsError;
       }
 
       const loadedParticipants =
         participantsData ?? [];
 
-      setParticipants(
-        loadedParticipants
-      );
+      setParticipants(loadedParticipants);
 
-      // =====================================================
-      // DATY TYGODNIA
-      // =====================================================
-
-      const {
-        monday,
-        sunday,
-      } = getWeekDates();
-
-      // =====================================================
-      // REST DAY
-      // =====================================================
+      const { monday, sunday } =
+        getWeekDates();
 
       const {
         data: restData,
@@ -598,14 +509,8 @@ export default function Home() {
           "participant_id, choice_date"
         )
         .eq("choice", "rest")
-        .gte(
-          "choice_date",
-          monday
-        )
-        .lte(
-          "choice_date",
-          sunday
-        );
+        .gte("choice_date", monday)
+        .lte("choice_date", sunday);
 
       if (restError) {
         console.error(
@@ -625,22 +530,15 @@ export default function Home() {
       (restData ?? []).forEach(
         (rest) => {
           if (
-            counts[
-              rest.participant_id
-            ] !== undefined
+            counts[rest.participant_id] !==
+            undefined
           ) {
-            counts[
-              rest.participant_id
-            ] += 1;
+            counts[rest.participant_id] += 1;
           }
         }
       );
 
       setRestCounts(counts);
-
-      // =====================================================
-      // HISTORIA - 10 OSTATNICH
-      // =====================================================
 
       const {
         data: activitiesData,
@@ -655,7 +553,7 @@ export default function Home() {
 
       if (activitiesError) {
         console.error(
-          "Błąd pobierania historii:",
+          "Błąd historii:",
           activitiesError
         );
 
@@ -665,10 +563,6 @@ export default function Home() {
           activitiesData ?? []
         );
       }
-
-      // =====================================================
-      // PEŁNA HISTORIA AKTUALNEGO UCZESTNIKA
-      // =====================================================
 
       const {
         data: currentActivitiesData,
@@ -686,7 +580,7 @@ export default function Home() {
 
       if (currentActivitiesError) {
         console.error(
-          "Błąd pobierania danych streaku:",
+          "Błąd streaku:",
           currentActivitiesError
         );
 
@@ -745,10 +639,6 @@ export default function Home() {
     }
   }
 
-  // =========================================================
-  // START APLIKACJI
-  // =========================================================
-
   useEffect(() => {
     const savedParticipant =
       getSavedParticipant();
@@ -758,9 +648,7 @@ export default function Home() {
         savedParticipant
       );
 
-      loadData(
-        savedParticipant
-      );
+      loadData(savedParticipant);
     } else {
       setLoading(false);
       setActivityLoading(false);
@@ -768,10 +656,6 @@ export default function Home() {
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // =========================================================
-  // LOGOWANIE / REJESTRACJA
-  // =========================================================
 
   async function loginOrRegister(
     mode: "login" | "register"
@@ -823,17 +707,38 @@ export default function Home() {
 
       if (rpcError) {
         console.error(
-          "Błąd logowania/rejestracji:",
+          "RPC error:",
           rpcError
         );
 
-        throw rpcError;
+        setError(
+          rpcError.message ||
+            "Nie udało się zalogować."
+        );
+
+        return;
       }
 
-      if (!data?.success) {
+      if (!data) {
         setError(
-          data?.error ||
-            "Nie udało się zalogować."
+          "Serwer nie zwrócił danych."
+        );
+
+        return;
+      }
+
+      if (data.success !== true) {
+        setError(
+          data.error ||
+            "Nieprawidłowy nick lub kod."
+        );
+
+        return;
+      }
+
+      if (!data.participant) {
+        setError(
+          "Nie otrzymano danych konta."
         );
 
         return;
@@ -856,21 +761,21 @@ export default function Home() {
       await loadData(
         participant
       );
-    } catch (err: any) {
-      console.error(err);
+    } catch (err) {
+      console.error(
+        "Błąd logowania/rejestracji:",
+        err
+      );
 
       setError(
-        err?.message ||
-          "Nie udało się połączyć z aplikacją."
+        err instanceof Error
+          ? err.message
+          : "Nie udało się połączyć z aplikacją."
       );
     } finally {
       setJoining(false);
     }
   }
-
-  // =========================================================
-  // WYBÓR OPCJI
-  // =========================================================
 
   async function chooseOption(
     points: number
@@ -881,7 +786,7 @@ export default function Home() {
 
     if (selected !== null) {
       alert(
-        "Masz już dzisiejszy wybór. Jeśli chcesz zmienić decyzję, najpierw ją cofnij."
+        "Masz już dzisiejszy wybór. Najpierw go cofnij."
       );
 
       return;
@@ -892,10 +797,6 @@ export default function Home() {
 
     const today =
       getTodayDate();
-
-    // =======================================================
-    // SPRAWDZENIE CZY DZISIAJ JUŻ WYBRANO
-    // =======================================================
 
     const {
       data: existingChoice,
@@ -915,7 +816,7 @@ export default function Home() {
 
     if (checkError) {
       console.error(
-        "Błąd sprawdzania dzisiejszego wyboru:",
+        "Błąd sprawdzania wyboru:",
         checkError
       );
 
@@ -937,10 +838,6 @@ export default function Home() {
 
       return;
     }
-
-    // =======================================================
-    // REST DAY
-    // =======================================================
 
     if (points === 0) {
       const currentRestCount =
@@ -986,10 +883,6 @@ export default function Home() {
 
       return;
     }
-
-    // =======================================================
-    // +1 / -2
-    // =======================================================
 
     const newScore =
       participant.score +
@@ -1038,12 +931,10 @@ export default function Home() {
 
     if (insertActivityError) {
       console.error(
-        "Nie udało się zapisać historii:",
+        "Błąd historii:",
         insertActivityError
       );
 
-      // Cofnięcie punktów,
-      // jeśli zapis historii się nie udał.
       await supabase
         .from("participants")
         .update({
@@ -1066,10 +957,6 @@ export default function Home() {
       participant
     );
   }
-
-  // =========================================================
-  // COFNIĘCIE DZISIEJSZEGO WYBORU
-  // =========================================================
 
   async function undoTodayChoice() {
     if (!currentParticipant) {
@@ -1097,7 +984,7 @@ export default function Home() {
 
     if (findError) {
       console.error(
-        "Błąd wyszukiwania wyboru:",
+        "Błąd wyboru:",
         findError
       );
 
@@ -1121,10 +1008,6 @@ export default function Home() {
 
     let newScore =
       oldScore;
-
-    // =======================================================
-    // COFNIĘCIE PUNKTÓW
-    // =======================================================
 
     if (
       todayChoice.choice ===
@@ -1174,10 +1057,6 @@ export default function Home() {
       }
     }
 
-    // =======================================================
-    // USUNIĘCIE WYBORU
-    // =======================================================
-
     const {
       error: deleteError,
     } = await supabase
@@ -1194,8 +1073,6 @@ export default function Home() {
         deleteError
       );
 
-      // Jeżeli usunięcie historii się nie udało,
-      // przywracamy poprzedni wynik.
       if (
         todayChoice.choice ===
           "plus1" ||
@@ -1225,10 +1102,6 @@ export default function Home() {
     );
   }
 
-  // =========================================================
-  // STANY
-  // =========================================================
-
   if (
     loading &&
     !currentParticipant
@@ -1247,10 +1120,6 @@ export default function Home() {
       </main>
     );
   }
-
-  // =========================================================
-  // EKRAN LOGOWANIA
-  // =========================================================
 
   if (!currentParticipant) {
     return (
@@ -1327,8 +1196,7 @@ export default function Home() {
                 }
                 onKeyDown={(event) => {
                   if (
-                    event.key ===
-                    "Enter"
+                    event.key === "Enter"
                   ) {
                     loginOrRegister(
                       authMode
@@ -1391,10 +1259,6 @@ export default function Home() {
     );
   }
 
-  // =========================================================
-  // DANE AKTUALNEGO UCZESTNIKA
-  // =========================================================
-
   const myScore =
     currentParticipant.score;
 
@@ -1435,10 +1299,6 @@ export default function Home() {
       ? "📉"
       : "😴";
 
-  // =========================================================
-  // GŁÓWNA APLIKACJA
-  // =========================================================
-
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#07090d] px-4 py-8 text-white sm:py-12">
       <style jsx global>{`
@@ -1446,11 +1306,9 @@ export default function Home() {
           0% {
             background-position: 0% 50%;
           }
-
           50% {
             background-position: 100% 50%;
           }
-
           100% {
             background-position: 0% 50%;
           }
@@ -1517,11 +1375,6 @@ export default function Home() {
       <div className="pointer-events-none absolute left-1/2 top-0 h-[500px] w-[700px] -translate-x-1/2 rounded-full bg-blue-600/[0.035] blur-[140px]" />
 
       <div className="relative mx-auto max-w-7xl">
-
-        {/* ================================================= */}
-        {/* HEADER */}
-        {/* ================================================= */}
-
         <header className="mb-10 sm:mb-14">
           <div className="mb-5 flex justify-end">
             <button
@@ -1549,7 +1402,6 @@ export default function Home() {
             <h1 className="text-4xl font-black tracking-[-0.04em] sm:text-6xl">
               Twój dzień.
               <br />
-
               <span className="bg-gradient-to-r from-white via-blue-100 to-blue-500 bg-clip-text text-transparent">
                 Twój wybór.
               </span>
@@ -1564,10 +1416,6 @@ export default function Home() {
             </p>
           </div>
         </header>
-
-        {/* ================================================= */}
-        {/* SCORE */}
-        {/* ================================================= */}
 
         <section className="mb-14">
           <AnimatedFrame>
@@ -1594,10 +1442,6 @@ export default function Home() {
             </div>
           </AnimatedFrame>
         </section>
-
-        {/* ================================================= */}
-        {/* TODAY'S CHOICE */}
-        {/* ================================================= */}
 
         <section className="mb-14">
           <SectionHeader
@@ -1740,16 +1584,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* ================================================= */}
-        {/* THREE COLUMNS */}
-        {/* ================================================= */}
-
         <div className="grid items-start gap-6 xl:grid-cols-3">
-
-          {/* ================================================= */}
-          {/* STATYSTYKI */}
-          {/* ================================================= */}
-
           <section>
             <SectionHeader
               eyebrow="Twój profil"
@@ -1820,10 +1655,6 @@ export default function Home() {
             </AnimatedFrame>
           </section>
 
-          {/* ================================================= */}
-          {/* RANKING */}
-          {/* ================================================= */}
-
           <section>
             <SectionHeader
               eyebrow="Rywalizacja"
@@ -1840,15 +1671,10 @@ export default function Home() {
               <div className="overflow-hidden">
                 <div className="grid grid-cols-[40px_1fr_75px_50px] border-b border-white/[0.05] px-4 py-4 text-[9px] font-bold uppercase tracking-wider text-zinc-600 sm:grid-cols-[45px_1fr_85px_55px] sm:px-5">
                   <span>#</span>
-
-                  <span>
-                    Uczestnik
-                  </span>
-
+                  <span>Uczestnik</span>
                   <span className="text-right">
                     Punkty
                   </span>
-
                   <span className="text-right">
                     Rest
                   </span>
@@ -1979,10 +1805,6 @@ export default function Home() {
             </AnimatedFrame>
           </section>
 
-          {/* ================================================= */}
-          {/* HISTORIA */}
-          {/* ================================================= */}
-
           <section>
             <SectionHeader
               eyebrow="Historia"
@@ -2087,10 +1909,6 @@ export default function Home() {
           </section>
         </div>
 
-        {/* ================================================= */}
-        {/* FOOTER */}
-        {/* ================================================= */}
-
         <footer className="mt-16 pb-4 text-center">
           <p className="text-[10px] font-medium uppercase tracking-[0.25em] text-zinc-700">
             Daily Challenge
@@ -2100,3 +1918,4 @@ export default function Home() {
     </main>
   );
 }
+
