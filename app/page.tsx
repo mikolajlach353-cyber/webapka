@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
@@ -187,6 +186,25 @@ function calculateStreaks(activities: Activity[]) {
     current,
     record,
   };
+}
+
+/**
+ * Hashowanie 4-cyfrowego kodu SHA-256.
+ * Musi być takie samo jak hash zapisany wcześniej w Supabase.
+ */
+async function hashLoginCode(code: string) {
+  const data = new TextEncoder().encode(code);
+
+  const hashBuffer = await crypto.subtle.digest(
+    "SHA-256",
+    data
+  );
+
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((byte) =>
+      byte.toString(16).padStart(2, "0")
+    )
+    .join("");
 }
 
 function AnimatedFrame({
@@ -657,6 +675,16 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /*
+   * LOGOWANIE / REJESTRACJA
+   *
+   * Nie korzystamy już z:
+   * login_participant
+   * register_participant
+   *
+   * Kod jest hashowany tutaj w przeglądarce
+   * i porównywany z login_code_hash w Supabase.
+   */
   async function loginOrRegister(
     mode: "login" | "register"
   ) {
@@ -689,77 +717,151 @@ export default function Home() {
     setError(null);
 
     try {
-      const functionName =
-        mode === "login"
-          ? "login_participant"
-          : "register_participant";
+      const codeHash =
+        await hashLoginCode(loginCode);
 
-      const {
-        data,
-        error: rpcError,
-      } = await supabase.rpc(
-        functionName,
-        {
-          p_name: trimmedName,
-          p_code: loginCode,
+      /*
+       * REJESTRACJA
+       */
+      if (mode === "register") {
+        const {
+          data: existingUser,
+          error: existingUserError,
+        } = await supabase
+          .from("participants")
+          .select("id")
+          .eq("name", trimmedName)
+          .maybeSingle();
+
+        if (existingUserError) {
+          console.error(
+            "Błąd sprawdzania nicku:",
+            existingUserError
+          );
+
+          setError(
+            existingUserError.message ||
+              "Nie udało się sprawdzić nicku."
+          );
+
+          return;
         }
-      );
 
-      if (rpcError) {
+        if (existingUser) {
+          setError(
+            "Taki nick już istnieje. Wybierz inny."
+          );
+
+          return;
+        }
+
+        const {
+          data: newParticipant,
+          error: registerError,
+        } = await supabase
+          .from("participants")
+          .insert({
+            name: trimmedName,
+            score: 0,
+            login_code_hash: codeHash,
+          })
+          .select(
+            "id, name, score, user_id"
+          )
+          .single();
+
+        if (registerError) {
+          console.error(
+            "Błąd rejestracji:",
+            registerError
+          );
+
+          setError(
+            registerError.message ||
+              "Nie udało się utworzyć konta."
+          );
+
+          return;
+        }
+
+        if (!newParticipant) {
+          setError(
+            "Konto zostało utworzone, ale nie otrzymano danych użytkownika."
+          );
+
+          return;
+        }
+
+        const participant =
+          newParticipant as Participant;
+
+        saveParticipant(participant);
+        setCurrentParticipant(participant);
+
+        setName("");
+        setLoginCode("");
+
+        await loadData(participant);
+
+        return;
+      }
+
+      /*
+       * LOGOWANIE
+       */
+      const {
+        data: participant,
+        error: loginError,
+      } = await supabase
+        .from("participants")
+        .select(
+          "id, name, score, user_id"
+        )
+        .eq("name", trimmedName)
+        .eq(
+          "login_code_hash",
+          codeHash
+        )
+        .maybeSingle();
+
+      if (loginError) {
         console.error(
-          "RPC error:",
-          rpcError
+          "Błąd logowania:",
+          loginError
         );
 
         setError(
-          rpcError.message ||
+          loginError.message ||
             "Nie udało się zalogować."
         );
 
         return;
       }
 
-      if (!data) {
+      if (!participant) {
         setError(
-          "Serwer nie zwrócił danych."
+          "Nieprawidłowy nick lub kod."
         );
 
         return;
       }
 
-      if (data.success !== true) {
-        setError(
-          data.error ||
-            "Nieprawidłowy nick lub kod."
-        );
-
-        return;
-      }
-
-      if (!data.participant) {
-        setError(
-          "Nie otrzymano danych konta."
-        );
-
-        return;
-      }
-
-      const participant =
-        data.participant as Participant;
+      const loggedParticipant =
+        participant as Participant;
 
       saveParticipant(
-        participant
+        loggedParticipant
       );
 
       setCurrentParticipant(
-        participant
+        loggedParticipant
       );
 
       setName("");
       setLoginCode("");
 
       await loadData(
-        participant
+        loggedParticipant
       );
     } catch (err) {
       console.error(
@@ -1918,4 +2020,3 @@ export default function Home() {
     </main>
   );
 }
-
