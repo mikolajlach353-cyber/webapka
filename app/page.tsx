@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
@@ -188,10 +189,6 @@ function calculateStreaks(activities: Activity[]) {
   };
 }
 
-/**
- * Hashowanie 4-cyfrowego kodu SHA-256.
- * Musi być takie samo jak hash zapisany wcześniej w Supabase.
- */
 async function hashLoginCode(code: string) {
   const data = new TextEncoder().encode(code);
 
@@ -216,7 +213,9 @@ function AnimatedFrame({
 }) {
   return (
     <div className={`animated-border ${className}`}>
-      <div className="animated-border-inner">{children}</div>
+      <div className="animated-border-inner">
+        {children}
+      </div>
     </div>
   );
 }
@@ -409,6 +408,24 @@ export default function Home() {
   const [error, setError] =
     useState<string | null>(null);
 
+  const [profileOpen, setProfileOpen] =
+    useState(false);
+
+  const [profileName, setProfileName] =
+    useState("");
+
+  const [profileCode, setProfileCode] =
+    useState("");
+
+  const [showProfileCode, setShowProfileCode] =
+    useState(false);
+
+  const [profileSaving, setProfileSaving] =
+    useState(false);
+
+  const [profileMessage, setProfileMessage] =
+    useState<string | null>(null);
+
   function getSavedParticipant(): Participant | null {
     if (typeof window === "undefined") {
       return null;
@@ -433,6 +450,18 @@ export default function Home() {
     }
   }
 
+  function getSavedLoginCode() {
+    if (typeof window === "undefined") {
+      return "";
+    }
+
+    return (
+      localStorage.getItem(
+        "daily-challenge-login-code"
+      ) ?? ""
+    );
+  }
+
   function saveParticipant(
     participant: Participant
   ) {
@@ -442,9 +471,20 @@ export default function Home() {
     );
   }
 
+  function saveLoginCode(code: string) {
+    localStorage.setItem(
+      "daily-challenge-login-code",
+      code
+    );
+  }
+
   function logoutParticipant() {
     localStorage.removeItem(
       "daily-challenge-user"
+    );
+
+    localStorage.removeItem(
+      "daily-challenge-login-code"
     );
 
     window.location.reload();
@@ -666,6 +706,14 @@ export default function Home() {
         savedParticipant
       );
 
+      setProfileName(
+        savedParticipant.name
+      );
+
+      setProfileCode(
+        getSavedLoginCode()
+      );
+
       loadData(savedParticipant);
     } else {
       setLoading(false);
@@ -675,16 +723,6 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /*
-   * LOGOWANIE / REJESTRACJA
-   *
-   * Nie korzystamy już z:
-   * login_participant
-   * register_participant
-   *
-   * Kod jest hashowany tutaj w przeglądarce
-   * i porównywany z login_code_hash w Supabase.
-   */
   async function loginOrRegister(
     mode: "login" | "register"
   ) {
@@ -720,9 +758,6 @@ export default function Home() {
       const codeHash =
         await hashLoginCode(loginCode);
 
-      /*
-       * REJESTRACJA
-       */
       if (mode === "register") {
         const {
           data: existingUser,
@@ -734,11 +769,6 @@ export default function Home() {
           .maybeSingle();
 
         if (existingUserError) {
-          console.error(
-            "Błąd sprawdzania nicku:",
-            existingUserError
-          );
-
           setError(
             existingUserError.message ||
               "Nie udało się sprawdzić nicku."
@@ -771,11 +801,6 @@ export default function Home() {
           .single();
 
         if (registerError) {
-          console.error(
-            "Błąd rejestracji:",
-            registerError
-          );
-
           setError(
             registerError.message ||
               "Nie udało się utworzyć konta."
@@ -796,7 +821,11 @@ export default function Home() {
           newParticipant as Participant;
 
         saveParticipant(participant);
-        setCurrentParticipant(participant);
+        saveLoginCode(loginCode);
+
+        setCurrentParticipant(
+          participant
+        );
 
         setName("");
         setLoginCode("");
@@ -806,9 +835,6 @@ export default function Home() {
         return;
       }
 
-      /*
-       * LOGOWANIE
-       */
       const {
         data: participant,
         error: loginError,
@@ -825,11 +851,6 @@ export default function Home() {
         .maybeSingle();
 
       if (loginError) {
-        console.error(
-          "Błąd logowania:",
-          loginError
-        );
-
         setError(
           loginError.message ||
             "Nie udało się zalogować."
@@ -852,6 +873,8 @@ export default function Home() {
       saveParticipant(
         loggedParticipant
       );
+
+      saveLoginCode(loginCode);
 
       setCurrentParticipant(
         loggedParticipant
@@ -876,6 +899,131 @@ export default function Home() {
       );
     } finally {
       setJoining(false);
+    }
+  }
+
+  async function saveProfile() {
+    if (!currentParticipant) {
+      return;
+    }
+
+    const newName =
+      profileName.trim();
+
+    if (
+      newName.length < 2 ||
+      newName.length > 30
+    ) {
+      setProfileMessage(
+        "Nick musi mieć od 2 do 30 znaków."
+      );
+
+      return;
+    }
+
+    if (!/^\d{4}$/.test(profileCode)) {
+      setProfileMessage(
+        "Kod musi składać się z dokładnie 4 cyfr."
+      );
+
+      return;
+    }
+
+    setProfileSaving(true);
+    setProfileMessage(null);
+
+    try {
+      if (
+        newName !== currentParticipant.name
+      ) {
+        const {
+          data: existingUser,
+          error: existingError,
+        } = await supabase
+          .from("participants")
+          .select("id")
+          .eq("name", newName)
+          .neq(
+            "id",
+            currentParticipant.id
+          )
+          .maybeSingle();
+
+        if (existingError) {
+          setProfileMessage(
+            existingError.message
+          );
+
+          return;
+        }
+
+        if (existingUser) {
+          setProfileMessage(
+            "Taki nick już istnieje."
+          );
+
+          return;
+        }
+      }
+
+      const codeHash =
+        await hashLoginCode(profileCode);
+
+      const {
+        data: updatedParticipant,
+        error: updateError,
+      } = await supabase
+        .from("participants")
+        .update({
+          name: newName,
+          login_code_hash: codeHash,
+        })
+        .eq(
+          "id",
+          currentParticipant.id
+        )
+        .select(
+          "id, name, score, user_id"
+        )
+        .single();
+
+      if (updateError) {
+        setProfileMessage(
+          updateError.message ||
+            "Nie udało się zapisać zmian."
+        );
+
+        return;
+      }
+
+      const updated =
+        updatedParticipant as Participant;
+
+      setCurrentParticipant(updated);
+      saveParticipant(updated);
+      saveLoginCode(profileCode);
+
+      setProfileName(updated.name);
+      setProfileCode(profileCode);
+
+      setProfileMessage(
+        "Profil został zaktualizowany."
+      );
+
+      await loadData(updated);
+    } catch (err) {
+      console.error(
+        "Błąd profilu:",
+        err
+      );
+
+      setProfileMessage(
+        err instanceof Error
+          ? err.message
+          : "Nie udało się zapisać profilu."
+      );
+    } finally {
+      setProfileSaving(false);
     }
   }
 
@@ -917,11 +1065,6 @@ export default function Home() {
       .maybeSingle();
 
     if (checkError) {
-      console.error(
-        "Błąd sprawdzania wyboru:",
-        checkError
-      );
-
       alert(
         "Nie udało się sprawdzić dzisiejszego wyboru."
       );
@@ -967,11 +1110,6 @@ export default function Home() {
         });
 
       if (insertError) {
-        console.error(
-          "Błąd Rest day:",
-          insertError
-        );
-
         alert(
           "Nie udało się zapisać wyboru."
         );
@@ -1003,11 +1141,6 @@ export default function Home() {
       );
 
     if (updateError) {
-      console.error(
-        "Błąd aktualizacji punktów:",
-        updateError
-      );
-
       alert(
         `Nie udało się zmienić punktów: ${updateError.message}`
       );
@@ -1032,11 +1165,6 @@ export default function Home() {
       });
 
     if (insertActivityError) {
-      console.error(
-        "Błąd historii:",
-        insertActivityError
-      );
-
       await supabase
         .from("participants")
         .update({
@@ -1085,11 +1213,6 @@ export default function Home() {
       .maybeSingle();
 
     if (findError) {
-      console.error(
-        "Błąd wyboru:",
-        findError
-      );
-
       alert(
         "Nie udało się znaleźć dzisiejszego wyboru."
       );
@@ -1146,11 +1269,6 @@ export default function Home() {
         );
 
       if (scoreError) {
-        console.error(
-          "Błąd cofania punktów:",
-          scoreError
-        );
-
         alert(
           "Nie udało się cofnąć punktów."
         );
@@ -1170,11 +1288,6 @@ export default function Home() {
       );
 
     if (deleteError) {
-      console.error(
-        "Błąd usuwania wyboru:",
-        deleteError
-      );
-
       if (
         todayChoice.choice ===
           "plus1" ||
@@ -1216,7 +1329,7 @@ export default function Home() {
           </div>
 
           <p className="mt-5 text-sm text-zinc-500">
-            Przygotowywanie Daily Challenge...
+            Przygotowywanie Tytan Challenge...
           </p>
         </div>
       </main>
@@ -1226,6 +1339,8 @@ export default function Home() {
   if (!currentParticipant) {
     return (
       <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#07090d] px-4 py-8 text-white">
+        <div className="titan-lines pointer-events-none" />
+
         <div className="pointer-events-none absolute left-1/2 top-1/3 h-96 w-96 -translate-x-1/2 rounded-full bg-blue-600/10 blur-[120px]" />
 
         <div className="relative w-full max-w-md">
@@ -1235,7 +1350,7 @@ export default function Home() {
             </div>
 
             <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">
-              Daily Challenge
+              Tytan Challenge
             </p>
 
             <h1 className="text-4xl font-black tracking-tight sm:text-5xl">
@@ -1247,7 +1362,7 @@ export default function Home() {
             <p className="mx-auto mt-4 max-w-sm text-sm leading-6 text-zinc-500">
               {authMode === "login"
                 ? "Zaloguj się swoim nickiem i 4-cyfrowym kodem."
-                : "Utwórz konto do Daily Challenge."}
+                : "Utwórz konto do Tytan Challenge."}
             </p>
           </div>
 
@@ -1408,12 +1523,98 @@ export default function Home() {
           0% {
             background-position: 0% 50%;
           }
+
           50% {
             background-position: 100% 50%;
           }
+
           100% {
             background-position: 0% 50%;
           }
+        }
+
+        @keyframes titanLineMove {
+          0% {
+            transform: translate3d(-8%, 0, 0);
+            opacity: 0;
+          }
+
+          12% {
+            opacity: 0.18;
+          }
+
+          50% {
+            opacity: 0.1;
+          }
+
+          88% {
+            opacity: 0.18;
+          }
+
+          100% {
+            transform: translate3d(8%, 0, 0);
+            opacity: 0;
+          }
+        }
+
+        @keyframes titanLineMoveReverse {
+          0% {
+            transform: translate3d(8%, 0, 0);
+            opacity: 0;
+          }
+
+          12% {
+            opacity: 0.13;
+          }
+
+          50% {
+            opacity: 0.07;
+          }
+
+          88% {
+            opacity: 0.13;
+          }
+
+          100% {
+            transform: translate3d(-8%, 0, 0);
+            opacity: 0;
+          }
+        }
+
+        .titan-lines {
+          position: fixed;
+          inset: 0;
+          z-index: 0;
+          pointer-events: none;
+          overflow: hidden;
+          contain: strict;
+        }
+
+        .titan-lines::before,
+        .titan-lines::after {
+          content: "";
+          position: absolute;
+          inset: -20%;
+          background-image:
+            linear-gradient(
+              115deg,
+              transparent 0%,
+              transparent 47%,
+              rgba(255, 255, 255, 0.055) 48%,
+              rgba(255, 255, 255, 0.055) 48.15%,
+              transparent 49%,
+              transparent 100%
+            );
+          background-size: 310px 310px;
+          animation: titanLineMove 32s linear infinite;
+          will-change: transform;
+        }
+
+        .titan-lines::after {
+          background-size: 420px 420px;
+          animation:
+            titanLineMoveReverse 43s linear infinite;
+          opacity: 0.55;
         }
 
         .animated-border {
@@ -1433,6 +1634,15 @@ export default function Home() {
           box-shadow:
             0 0 0 1px rgba(255, 255, 255, 0.015),
             0 0 35px rgba(59, 130, 246, 0.035);
+          transition:
+            box-shadow 300ms ease,
+            filter 300ms ease;
+        }
+
+        .animated-border:hover {
+          box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.025),
+            0 0 42px rgba(59, 130, 246, 0.07);
         }
 
         .animated-border-inner {
@@ -1457,14 +1667,16 @@ export default function Home() {
           animation: borderFlow 9s ease infinite;
           transition:
             transform 300ms ease,
-            box-shadow 300ms ease;
+            box-shadow 300ms ease,
+            filter 300ms ease;
         }
 
         .animated-choice:hover {
           transform: translateY(-4px);
           box-shadow:
             0 15px 50px rgba(0, 0, 0, 0.28),
-            0 0 35px rgba(59, 130, 246, 0.07);
+            0 0 35px rgba(59, 130, 246, 0.09);
+          filter: brightness(1.06);
         }
 
         .animated-choice > button {
@@ -1472,19 +1684,87 @@ export default function Home() {
           height: 100%;
           border-radius: 30px;
         }
+
+        .titan-interactive {
+          transition:
+            background-color 220ms ease,
+            border-color 220ms ease,
+            color 220ms ease,
+            box-shadow 220ms ease,
+            transform 220ms ease;
+        }
+
+        .titan-interactive:hover {
+          border-color: rgba(255, 255, 255, 0.12);
+          background-color: rgba(255, 255, 255, 0.045);
+          box-shadow:
+            0 8px 30px rgba(0, 0, 0, 0.16),
+            0 0 20px rgba(255, 255, 255, 0.025);
+        }
+
+        .ranking-row {
+          transition:
+            background-color 220ms ease,
+            box-shadow 220ms ease,
+            transform 220ms ease;
+        }
+
+        .ranking-row:hover {
+          background-color: rgba(255, 255, 255, 0.035);
+          box-shadow:
+            inset 3px 0 0 rgba(96, 165, 250, 0.3);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .titan-lines::before,
+          .titan-lines::after,
+          .animated-border,
+          .animated-choice {
+            animation: none !important;
+          }
+
+          .animated-choice,
+          .animated-border,
+          .titan-interactive,
+          .ranking-row {
+            transition: none !important;
+          }
+        }
       `}</style>
 
-      <div className="pointer-events-none absolute left-1/2 top-0 h-[500px] w-[700px] -translate-x-1/2 rounded-full bg-blue-600/[0.035] blur-[140px]" />
+      <div className="titan-lines" />
 
-      <div className="relative mx-auto max-w-7xl">
+      <div className="pointer-events-none absolute left-1/2 top-0 z-0 h-[500px] w-[700px] -translate-x-1/2 rounded-full bg-blue-600/[0.035] blur-[140px]" />
+
+      <div className="relative z-10 mx-auto max-w-7xl">
         <header className="mb-10 sm:mb-14">
-          <div className="mb-5 flex justify-end">
+          <div className="mb-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setProfileName(
+                  currentParticipant.name
+                );
+
+                setProfileCode(
+                  getSavedLoginCode()
+                );
+
+                setProfileMessage(null);
+                setShowProfileCode(false);
+                setProfileOpen(true);
+              }}
+              className="titan-interactive rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2 text-xs font-semibold text-zinc-400 hover:text-white"
+            >
+              👤 Profil
+            </button>
+
             <button
               type="button"
               onClick={
                 logoutParticipant
               }
-              className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-300"
+              className="titan-interactive rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2 text-xs font-semibold text-zinc-500 hover:text-zinc-200"
             >
               Wyloguj
             </button>
@@ -1495,26 +1775,26 @@ export default function Home() {
               <div className="h-1.5 w-1.5 rounded-full bg-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.8)]" />
 
               <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-blue-400/80">
-                Daily Challenge
+                Tytan Challenge
               </p>
 
               <div className="h-1.5 w-1.5 rounded-full bg-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.8)]" />
             </div>
 
             <h1 className="text-4xl font-black tracking-[-0.04em] sm:text-6xl">
-              Twój dzień.
+              Witam Cię,
               <br />
               <span className="bg-gradient-to-r from-white via-blue-100 to-blue-500 bg-clip-text text-transparent">
-                Twój wybór.
+                Tytanie
               </span>
             </h1>
 
             <p className="mx-auto mt-5 max-w-lg text-sm leading-6 text-zinc-500 sm:text-base">
-              Cześć{" "}
+              Każdy dzień to kolejny krok.
+              <br />
               <span className="font-semibold text-zinc-200">
                 {currentParticipant.name}
               </span>
-              . Każdy dzień to kolejny krok.
             </p>
           </div>
         </header>
@@ -1573,7 +1853,7 @@ export default function Home() {
                 onClick={
                   undoTodayChoice
                 }
-                className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-5 py-3 text-sm font-bold text-zinc-200 transition hover:bg-white/[0.08] hover:text-white sm:w-auto"
+                className="titan-interactive w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-5 py-3 text-sm font-bold text-zinc-200 hover:text-white sm:w-auto"
               >
                 ↩ Cofnij wybór
               </button>
@@ -1617,7 +1897,7 @@ export default function Home() {
                     className={`group relative min-h-[250px] overflow-hidden p-7 text-left transition-all duration-300 ${
                       isSelected
                         ? "bg-blue-500/[0.09] shadow-[inset_0_0_35px_rgba(59,130,246,0.04)]"
-                        : "bg-[#0b0e14] hover:bg-[#0d1118]"
+                        : "bg-[#0b0e14] hover:bg-[#0f131b]"
                     } ${
                       restLimitReached ||
                       choiceAlreadyMade
@@ -1660,7 +1940,7 @@ export default function Home() {
                           className={`text-xs font-semibold uppercase tracking-wider ${
                             isSelected
                               ? "text-blue-300"
-                              : "text-zinc-700 group-hover:text-zinc-500"
+                              : "text-zinc-700 group-hover:text-zinc-400"
                           }`}
                         >
                           {isSelected
@@ -1816,7 +2096,7 @@ export default function Home() {
                             key={
                               participant.id
                             }
-                            className={`group grid grid-cols-[40px_1fr_75px_50px] items-center px-4 py-4 transition-all sm:grid-cols-[45px_1fr_85px_55px] sm:px-5 ${
+                            className={`ranking-row grid grid-cols-[40px_1fr_75px_50px] items-center px-4 py-4 sm:grid-cols-[45px_1fr_85px_55px] sm:px-5 ${
                               index !==
                               participants.length -
                                 1
@@ -1825,7 +2105,7 @@ export default function Home() {
                             } ${
                               isMe
                                 ? "bg-blue-500/[0.06]"
-                                : "hover:bg-white/[0.025]"
+                                : ""
                             }`}
                           >
                             <div>
@@ -1959,7 +2239,7 @@ export default function Home() {
                         return (
                           <div
                             key={activity.id}
-                            className="group relative flex items-center gap-3 rounded-2xl px-1 py-3 transition-all hover:bg-white/[0.025]"
+                            className="group relative flex items-center gap-3 rounded-2xl px-1 py-3 transition-all hover:bg-white/[0.035]"
                           >
                             <div
                               className={`relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border text-lg transition-all duration-300 group-hover:scale-105 ${
@@ -2013,10 +2293,172 @@ export default function Home() {
 
         <footer className="mt-16 pb-4 text-center">
           <p className="text-[10px] font-medium uppercase tracking-[0.25em] text-zinc-700">
-            Daily Challenge
+            Tytan Challenge
           </p>
         </footer>
       </div>
+
+      {profileOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/70 px-4 py-8 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (
+              event.target ===
+              event.currentTarget
+            ) {
+              setProfileOpen(false);
+            }
+          }}
+        >
+          <div className="w-full max-w-md">
+            <AnimatedFrame>
+              <div className="rounded-[30px] bg-[#0b0e14] p-6 sm:p-7">
+                <div className="mb-7 flex items-start justify-between gap-4">
+                  <div>
+                    <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.25em] text-blue-400">
+                      Tytan Challenge
+                    </p>
+
+                    <h2 className="text-2xl font-black text-white">
+                      Twój profil
+                    </h2>
+
+                    <p className="mt-2 text-sm text-zinc-500">
+                      Zarządzaj nickiem i kodem logowania.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setProfileOpen(false)
+                    }
+                    className="titan-interactive flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.03] text-zinc-500 hover:text-white"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <label
+                  htmlFor="profile-name"
+                  className="mb-2 block text-xs font-semibold uppercase tracking-wider text-zinc-500"
+                >
+                  Twój nick
+                </label>
+
+                <input
+                  id="profile-name"
+                  type="text"
+                  value={profileName}
+                  onChange={(event) =>
+                    setProfileName(
+                      event.target.value
+                    )
+                  }
+                  maxLength={30}
+                  disabled={profileSaving}
+                  className="w-full rounded-2xl border border-white/[0.06] bg-black/30 px-4 py-4 text-white outline-none transition placeholder:text-zinc-700 focus:border-blue-500/60 focus:bg-blue-500/[0.03]"
+                />
+
+                <label
+                  htmlFor="profile-code"
+                  className="mb-2 mt-5 block text-xs font-semibold uppercase tracking-wider text-zinc-500"
+                >
+                  Kod logowania
+                </label>
+
+                <div className="relative">
+                  <input
+                    id="profile-code"
+                    type={
+                      showProfileCode
+                        ? "text"
+                        : "password"
+                    }
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={profileCode}
+                    onChange={(event) =>
+                      setProfileCode(
+                        event.target.value
+                          .replace(/\D/g, "")
+                          .slice(0, 4)
+                      )
+                    }
+                    disabled={profileSaving}
+                    className="w-full rounded-2xl border border-white/[0.06] bg-black/30 px-4 py-4 pr-16 text-center text-xl font-bold tracking-[0.5em] text-white outline-none transition focus:border-blue-500/60 focus:bg-blue-500/[0.03]"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowProfileCode(
+                        !showProfileCode
+                      )
+                    }
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-xl px-3 py-2 text-xs font-semibold text-zinc-500 transition hover:bg-white/[0.05] hover:text-zinc-200"
+                  >
+                    {showProfileCode
+                      ? "Ukryj"
+                      : "Pokaż"}
+                  </button>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-blue-500/10 bg-blue-500/[0.035] p-4">
+                  <p className="text-xs leading-5 text-zinc-500">
+                    🔐 Twój kod nie jest przechowywany
+                    jako zwykły tekst w bazie danych.
+                    Jest zapamiętywany lokalnie na tym
+                    urządzeniu.
+                  </p>
+                </div>
+
+                {profileMessage && (
+                  <div
+                    className={`mt-4 rounded-2xl border p-4 text-sm ${
+                      profileMessage.includes(
+                        "zaktualizowany"
+                      )
+                        ? "border-blue-500/20 bg-blue-500/5 text-blue-300"
+                        : "border-red-500/20 bg-red-500/5 text-red-300"
+                    }`}
+                  >
+                    {profileMessage}
+                  </div>
+                )}
+
+                <div className="mt-6 grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setProfileOpen(false)
+                    }
+                    className="titan-interactive rounded-2xl border border-white/[0.07] bg-white/[0.03] px-4 py-4 text-sm font-bold text-zinc-400 hover:text-white"
+                  >
+                    Anuluj
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={saveProfile}
+                    disabled={
+                      profileSaving ||
+                      profileName.trim().length <
+                        2 ||
+                      profileCode.length !== 4
+                    }
+                    className="rounded-2xl bg-white px-4 py-4 text-sm font-bold text-zinc-950 transition-all duration-300 hover:bg-blue-50 hover:shadow-[0_0_30px_rgba(59,130,246,0.18)] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {profileSaving
+                      ? "Zapisywanie..."
+                      : "Zapisz zmiany"}
+                  </button>
+                </div>
+              </div>
+            </AnimatedFrame>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
