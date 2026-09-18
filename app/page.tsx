@@ -7,7 +7,7 @@ type Participant = {
   id: number;
   name: string;
   score: number;
-  user_id: string;
+  user_id: string | null;
 };
 
 type RestCounts = {
@@ -162,11 +162,10 @@ function calculateStreaks(activities: Activity[]) {
     `${uniqueDates[uniqueDates.length - 1]}T12:00:00`
   );
 
-  const daysSinceLastActivity =
-    Math.round(
-      (today.getTime() - lastDate.getTime()) /
-        (1000 * 60 * 60 * 24)
-    );
+  const daysSinceLastActivity = Math.round(
+    (today.getTime() - lastDate.getTime()) /
+      (1000 * 60 * 60 * 24)
+  );
 
   if (daysSinceLastActivity > 1) {
     return {
@@ -187,8 +186,7 @@ function calculateStreaks(activities: Activity[]) {
     );
 
     const difference =
-      (currentDate.getTime() -
-        previousDate.getTime()) /
+      (currentDate.getTime() - previousDate.getTime()) /
       (1000 * 60 * 60 * 24);
 
     if (difference === 1) {
@@ -433,87 +431,77 @@ export default function Home() {
   const [name, setName] =
     useState("");
 
+  const [loginCode, setLoginCode] =
+    useState("");
+
+  const [authMode, setAuthMode] =
+    useState<"login" | "register">("login");
+
   const [error, setError] =
     useState<string | null>(null);
 
   // =========================================================
-  // LOGOWANIE ANONIMOWE
+  // ZAPISANY UŻYTKOWNIK
   // =========================================================
 
-  async function getCurrentUser() {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (session?.user) {
-      return session.user;
+  function getSavedParticipant(): Participant | null {
+    if (typeof window === "undefined") {
+      return null;
     }
 
-    const {
-      data,
-      error: signInError,
-    } = await supabase.auth.signInAnonymously();
-
-    if (signInError) {
-      console.error(
-        "Błąd anonimowego logowania:",
-        signInError
+    const saved =
+      localStorage.getItem(
+        "daily-challenge-user"
       );
 
-      throw signInError;
+    if (!saved) {
+      return null;
     }
 
-    return data.user;
+    try {
+      return JSON.parse(saved);
+    } catch {
+      localStorage.removeItem(
+        "daily-challenge-user"
+      );
+
+      return null;
+    }
   }
 
-  // =========================================================
-  // SPRAWDZENIE UCZESTNIKA
-  // =========================================================
+  function saveParticipant(
+    participant: Participant
+  ) {
+    localStorage.setItem(
+      "daily-challenge-user",
+      JSON.stringify(participant)
+    );
+  }
 
-  async function loadCurrentParticipant() {
-    const user = await getCurrentUser();
+  function logoutParticipant() {
+    localStorage.removeItem(
+      "daily-challenge-user"
+    );
 
-    if (!user) {
-      throw new Error(
-        "Nie udało się uzyskać użytkownika."
-      );
-    }
-
-    const {
-      data,
-      error: participantError,
-    } = await supabase
-      .from("participants")
-      .select("*")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (participantError) {
-      console.error(
-        "Błąd sprawdzania uczestnika:",
-        participantError
-      );
-
-      throw participantError;
-    }
-
-    setCurrentParticipant(data ?? null);
-
-    return data ?? null;
+    window.location.reload();
   }
 
   // =========================================================
   // POBIERANIE DANYCH
   // =========================================================
 
-  async function loadData() {
+  async function loadData(
+    participantOverride?: Participant
+  ) {
     setLoading(true);
     setActivityLoading(true);
     setError(null);
 
     try {
       const current =
-        await loadCurrentParticipant();
+        participantOverride ??
+        currentParticipant ??
+        getSavedParticipant();
 
       if (!current) {
         setParticipants([]);
@@ -522,11 +510,41 @@ export default function Home() {
         setStreakActivities([]);
         setSelected(null);
 
-        setLoading(false);
-        setActivityLoading(false);
-
         return;
       }
+
+      setCurrentParticipant(current);
+
+      // =====================================================
+      // AKTUALNY UCZESTNIK Z BAZY
+      // =====================================================
+
+      const {
+        data: freshParticipant,
+        error: freshParticipantError,
+      } = await supabase
+        .from("participants")
+        .select("*")
+        .eq("id", current.id)
+        .maybeSingle();
+
+      if (freshParticipantError) {
+        console.error(
+          "Błąd pobierania użytkownika:",
+          freshParticipantError
+        );
+      }
+
+      const activeParticipant =
+        freshParticipant ?? current;
+
+      setCurrentParticipant(
+        activeParticipant
+      );
+
+      saveParticipant(
+        activeParticipant
+      );
 
       // =====================================================
       // RANKING
@@ -660,7 +678,7 @@ export default function Home() {
         .select("*")
         .eq(
           "participant_id",
-          current.id
+          activeParticipant.id
         )
         .order("created_at", {
           ascending: false,
@@ -727,33 +745,58 @@ export default function Home() {
     }
   }
 
+  // =========================================================
+  // START APLIKACJI
+  // =========================================================
+
   useEffect(() => {
-    loadData();
+    const savedParticipant =
+      getSavedParticipant();
+
+    if (savedParticipant) {
+      setCurrentParticipant(
+        savedParticipant
+      );
+
+      loadData(
+        savedParticipant
+      );
+    } else {
+      setLoading(false);
+      setActivityLoading(false);
+    }
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // =========================================================
-  // DOŁĄCZENIE DO RYWALIZACJI
+  // LOGOWANIE / REJESTRACJA
   // =========================================================
 
-  async function joinCompetition() {
+  async function loginOrRegister(
+    mode: "login" | "register"
+  ) {
     const trimmedName =
       name.trim();
 
     if (!trimmedName) {
-      alert("Wpisz swój nick.");
+      setError("Wpisz swój nick.");
       return;
     }
 
-    if (trimmedName.length < 2) {
-      alert(
-        "Nick musi mieć przynajmniej 2 znaki."
+    if (
+      trimmedName.length < 2 ||
+      trimmedName.length > 30
+    ) {
+      setError(
+        "Nick musi mieć od 2 do 30 znaków."
       );
       return;
     }
 
-    if (trimmedName.length > 30) {
-      alert(
-        "Nick może mieć maksymalnie 30 znaków."
+    if (!/^\d{4}$/.test(loginCode)) {
+      setError(
+        "Kod musi składać się z dokładnie 4 cyfr."
       );
       return;
     }
@@ -762,79 +805,63 @@ export default function Home() {
     setError(null);
 
     try {
-      const user =
-        await getCurrentUser();
-
-      if (!user) {
-        throw new Error(
-          "Nie udało się uzyskać użytkownika."
-        );
-      }
+      const functionName =
+        mode === "login"
+          ? "login_participant"
+          : "register_participant";
 
       const {
-        data: existingParticipant,
-        error: existingError,
-      } = await supabase
-        .from("participants")
-        .select("*")
-        .eq(
-          "user_id",
-          user.id
-        )
-        .maybeSingle();
+        data,
+        error: rpcError,
+      } = await supabase.rpc(
+        functionName,
+        {
+          p_name: trimmedName,
+          p_code: loginCode,
+        }
+      );
 
-      if (existingError) {
-        throw existingError;
-      }
-
-      if (existingParticipant) {
-        setCurrentParticipant(
-          existingParticipant
+      if (rpcError) {
+        console.error(
+          "Błąd logowania/rejestracji:",
+          rpcError
         );
 
-        await loadData();
+        throw rpcError;
+      }
+
+      if (!data?.success) {
+        setError(
+          data?.error ||
+            "Nie udało się zalogować."
+        );
 
         return;
       }
 
-      const {
-        data: newParticipant,
-        error: insertError,
-      } = await supabase
-        .from("participants")
-        .insert({
-          user_id: user.id,
-          name: trimmedName,
-          score: 0,
-        })
-        .select()
-        .single();
+      const participant =
+        data.participant as Participant;
 
-      if (insertError) {
-        console.error(
-          "Błąd tworzenia uczestnika:",
-          insertError
-        );
-
-        throw insertError;
-      }
+      saveParticipant(
+        participant
+      );
 
       setCurrentParticipant(
-        newParticipant
+        participant
       );
 
       setName("");
+      setLoginCode("");
 
-      await loadData();
-    } catch (err: any) {
-      console.error(
-        "Błąd dołączania:",
-        err
+      await loadData(
+        participant
       );
+    } catch (err: any) {
+      console.error(err);
 
       setError(
         err?.message ||
-          "Nie udało się dołączyć do rywalizacji."
+          "Nie udało się połączyć z aplikacją."
       );
     } finally {
       setJoining(false);
@@ -849,16 +876,67 @@ export default function Home() {
     points: number
   ) {
     if (!currentParticipant) {
-      alert(
-        "Najpierw dołącz do rywalizacji."
-      );
       return;
     }
 
-    setSelected(points);
+    if (selected !== null) {
+      alert(
+        "Masz już dzisiejszy wybór. Jeśli chcesz zmienić decyzję, najpierw ją cofnij."
+      );
+
+      return;
+    }
 
     const participant =
       currentParticipant;
+
+    const today =
+      getTodayDate();
+
+    // =======================================================
+    // SPRAWDZENIE CZY DZISIAJ JUŻ WYBRANO
+    // =======================================================
+
+    const {
+      data: existingChoice,
+      error: checkError,
+    } = await supabase
+      .from("daily_choices")
+      .select("id, choice")
+      .eq(
+        "participant_id",
+        participant.id
+      )
+      .eq(
+        "choice_date",
+        today
+      )
+      .maybeSingle();
+
+    if (checkError) {
+      console.error(
+        "Błąd sprawdzania dzisiejszego wyboru:",
+        checkError
+      );
+
+      alert(
+        "Nie udało się sprawdzić dzisiejszego wyboru."
+      );
+
+      return;
+    }
+
+    if (existingChoice) {
+      await loadData(
+        participant
+      );
+
+      alert(
+        "Dzisiejszy wybór został już wykonany."
+      );
+
+      return;
+    }
 
     // =======================================================
     // REST DAY
@@ -873,50 +951,6 @@ export default function Home() {
       if (currentRestCount >= 2) {
         alert(
           "W tym tygodniu wykorzystałeś już 2 Rest day."
-        );
-
-        setSelected(null);
-        return;
-      }
-
-      const today =
-        new Date()
-          .toISOString()
-          .split("T")[0];
-
-      const {
-        data: existingRest,
-        error: checkError,
-      } = await supabase
-        .from("daily_choices")
-        .select("id")
-        .eq(
-          "participant_id",
-          participant.id
-        )
-        .eq(
-          "choice",
-          "rest"
-        )
-        .eq(
-          "choice_date",
-          today
-        )
-        .maybeSingle();
-
-      if (checkError) {
-        console.error(
-          "Błąd sprawdzania Rest day:",
-          checkError
-        );
-
-        setSelected(null);
-        return;
-      }
-
-      if (existingRest) {
-        alert(
-          "Rest day został już wybrany dzisiaj."
         );
 
         return;
@@ -935,31 +969,20 @@ export default function Home() {
 
       if (insertError) {
         console.error(
-          "Błąd zapisywania Rest day:",
-          {
-            message:
-              insertError.message,
-            details:
-              insertError.details,
-            hint:
-              insertError.hint,
-            code:
-              insertError.code,
-          }
+          "Błąd Rest day:",
+          insertError
         );
 
         alert(
-          `Błąd Rest day: ${
-            insertError.message ||
-            "Nieznany błąd"
-          }`
+          "Nie udało się zapisać wyboru."
         );
 
-        setSelected(null);
         return;
       }
 
-      await loadData();
+      await loadData(
+        participant
+      );
 
       return;
     }
@@ -994,7 +1017,6 @@ export default function Home() {
         `Nie udało się zmienić punktów: ${updateError.message}`
       );
 
-      setSelected(null);
       return;
     }
 
@@ -1011,20 +1033,196 @@ export default function Home() {
         participant_id:
           participant.id,
         choice,
-        choice_date:
-          new Date()
-            .toISOString()
-            .split("T")[0],
+        choice_date: today,
       });
 
     if (insertActivityError) {
       console.error(
-        "Punkty zostały zmienione, ale nie udało się zapisać historii:",
+        "Nie udało się zapisać historii:",
         insertActivityError
       );
+
+      // Cofnięcie punktów,
+      // jeśli zapis historii się nie udał.
+      await supabase
+        .from("participants")
+        .update({
+          score:
+            participant.score,
+        })
+        .eq(
+          "id",
+          participant.id
+        );
+
+      alert(
+        "Nie udało się zapisać wyboru."
+      );
+
+      return;
     }
 
-    await loadData();
+    await loadData(
+      participant
+    );
+  }
+
+  // =========================================================
+  // COFNIĘCIE DZISIEJSZEGO WYBORU
+  // =========================================================
+
+  async function undoTodayChoice() {
+    if (!currentParticipant) {
+      return;
+    }
+
+    const today =
+      getTodayDate();
+
+    const {
+      data: todayChoice,
+      error: findError,
+    } = await supabase
+      .from("daily_choices")
+      .select("*")
+      .eq(
+        "participant_id",
+        currentParticipant.id
+      )
+      .eq(
+        "choice_date",
+        today
+      )
+      .maybeSingle();
+
+    if (findError) {
+      console.error(
+        "Błąd wyszukiwania wyboru:",
+        findError
+      );
+
+      alert(
+        "Nie udało się znaleźć dzisiejszego wyboru."
+      );
+
+      return;
+    }
+
+    if (!todayChoice) {
+      await loadData(
+        currentParticipant
+      );
+
+      return;
+    }
+
+    const oldScore =
+      currentParticipant.score;
+
+    let newScore =
+      oldScore;
+
+    // =======================================================
+    // COFNIĘCIE PUNKTÓW
+    // =======================================================
+
+    if (
+      todayChoice.choice ===
+      "plus1"
+    ) {
+      newScore =
+        oldScore - 1;
+    }
+
+    if (
+      todayChoice.choice ===
+      "minus2"
+    ) {
+      newScore =
+        oldScore + 2;
+    }
+
+    if (
+      todayChoice.choice ===
+        "plus1" ||
+      todayChoice.choice ===
+        "minus2"
+    ) {
+      const {
+        error: scoreError,
+      } = await supabase
+        .from("participants")
+        .update({
+          score: newScore,
+        })
+        .eq(
+          "id",
+          currentParticipant.id
+        );
+
+      if (scoreError) {
+        console.error(
+          "Błąd cofania punktów:",
+          scoreError
+        );
+
+        alert(
+          "Nie udało się cofnąć punktów."
+        );
+
+        return;
+      }
+    }
+
+    // =======================================================
+    // USUNIĘCIE WYBORU
+    // =======================================================
+
+    const {
+      error: deleteError,
+    } = await supabase
+      .from("daily_choices")
+      .delete()
+      .eq(
+        "id",
+        todayChoice.id
+      );
+
+    if (deleteError) {
+      console.error(
+        "Błąd usuwania wyboru:",
+        deleteError
+      );
+
+      // Jeżeli usunięcie historii się nie udało,
+      // przywracamy poprzedni wynik.
+      if (
+        todayChoice.choice ===
+          "plus1" ||
+        todayChoice.choice ===
+          "minus2"
+      ) {
+        await supabase
+          .from("participants")
+          .update({
+            score: oldScore,
+          })
+          .eq(
+            "id",
+            currentParticipant.id
+          );
+      }
+
+      alert(
+        "Nie udało się cofnąć wyboru."
+      );
+
+      return;
+    }
+
+    await loadData(
+      currentParticipant
+    );
   }
 
   // =========================================================
@@ -1051,12 +1249,12 @@ export default function Home() {
   }
 
   // =========================================================
-  // EKRAN DOŁĄCZANIA
+  // EKRAN LOGOWANIA
   // =========================================================
 
   if (!currentParticipant) {
     return (
-      <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#07090d] px-4 text-white">
+      <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#07090d] px-4 py-8 text-white">
         <div className="pointer-events-none absolute left-1/2 top-1/3 h-96 w-96 -translate-x-1/2 rounded-full bg-blue-600/10 blur-[120px]" />
 
         <div className="relative w-full max-w-md">
@@ -1070,12 +1268,15 @@ export default function Home() {
             </p>
 
             <h1 className="text-4xl font-black tracking-tight sm:text-5xl">
-              Dołącz do rywalizacji
+              {authMode === "login"
+                ? "Witaj ponownie"
+                : "Nowe konto"}
             </h1>
 
             <p className="mx-auto mt-4 max-w-sm text-sm leading-6 text-zinc-500">
-              Wybierz swój nick i zacznij
-              budować swoją serię.
+              {authMode === "login"
+                ? "Zaloguj się swoim nickiem i 4-cyfrowym kodem."
+                : "Utwórz konto do Daily Challenge."}
             </p>
           </div>
 
@@ -1097,19 +1298,46 @@ export default function Home() {
                     event.target.value
                   )
                 }
-                onKeyDown={(event) => {
-                  if (
-                    event.key ===
-                    "Enter"
-                  ) {
-                    joinCompetition();
-                  }
-                }}
                 placeholder="np. Kuba"
                 maxLength={30}
                 disabled={joining}
                 className="w-full rounded-2xl border border-white/[0.06] bg-black/30 px-4 py-4 text-white outline-none transition placeholder:text-zinc-700 focus:border-blue-500/60 focus:bg-blue-500/[0.03] disabled:opacity-50"
                 autoFocus
+              />
+
+              <label
+                htmlFor="participant-code"
+                className="mb-2 mt-4 block text-xs font-semibold uppercase tracking-wider text-zinc-500"
+              >
+                4-cyfrowy kod
+              </label>
+
+              <input
+                id="participant-code"
+                type="password"
+                inputMode="numeric"
+                maxLength={4}
+                value={loginCode}
+                onChange={(event) =>
+                  setLoginCode(
+                    event.target.value
+                      .replace(/\D/g, "")
+                      .slice(0, 4)
+                  )
+                }
+                onKeyDown={(event) => {
+                  if (
+                    event.key ===
+                    "Enter"
+                  ) {
+                    loginOrRegister(
+                      authMode
+                    );
+                  }
+                }}
+                placeholder="••••"
+                disabled={joining}
+                className="w-full rounded-2xl border border-white/[0.06] bg-black/30 px-4 py-4 text-center text-xl font-bold tracking-[0.5em] text-white outline-none transition placeholder:text-zinc-700 focus:border-blue-500/60 focus:bg-blue-500/[0.03] disabled:opacity-50"
               />
 
               {error && (
@@ -1120,18 +1348,41 @@ export default function Home() {
 
               <button
                 type="button"
-                onClick={
-                  joinCompetition
+                onClick={() =>
+                  loginOrRegister(
+                    authMode
+                  )
                 }
                 disabled={
                   joining ||
-                  !name.trim()
+                  !name.trim() ||
+                  loginCode.length !== 4
                 }
                 className="mt-4 w-full rounded-2xl bg-white px-4 py-4 font-bold text-zinc-950 transition-all duration-300 hover:bg-blue-50 hover:shadow-[0_0_30px_rgba(59,130,246,0.18)] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {joining
-                  ? "Dołączanie..."
-                  : "Rozpocznij"}
+                  ? "Chwileczkę..."
+                  : authMode === "login"
+                  ? "Zaloguj się"
+                  : "Utwórz konto"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode(
+                    authMode === "login"
+                      ? "register"
+                      : "login"
+                  );
+
+                  setError(null);
+                }}
+                className="mt-4 w-full text-sm text-zinc-500 transition hover:text-zinc-300"
+              >
+                {authMode === "login"
+                  ? "Nie masz konta? Utwórz je"
+                  : "Masz już konto? Zaloguj się"}
               </button>
             </div>
           </AnimatedFrame>
@@ -1271,37 +1522,51 @@ export default function Home() {
         {/* HEADER */}
         {/* ================================================= */}
 
-        <header className="mb-10 text-center sm:mb-14">
-          <div className="mb-4 flex items-center justify-center gap-2">
-            <div className="h-1.5 w-1.5 rounded-full bg-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.8)]" />
-
-            <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-blue-400/80">
-              Daily Challenge
-            </p>
-
-            <div className="h-1.5 w-1.5 rounded-full bg-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.8)]" />
+        <header className="mb-10 sm:mb-14">
+          <div className="mb-5 flex justify-end">
+            <button
+              type="button"
+              onClick={
+                logoutParticipant
+              }
+              className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-300"
+            >
+              Wyloguj
+            </button>
           </div>
 
-          <h1 className="text-4xl font-black tracking-[-0.04em] sm:text-6xl">
-            Twój dzień.
-            <br />
+          <div className="text-center">
+            <div className="mb-4 flex items-center justify-center gap-2">
+              <div className="h-1.5 w-1.5 rounded-full bg-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.8)]" />
 
-            <span className="bg-gradient-to-r from-white via-blue-100 to-blue-500 bg-clip-text text-transparent">
-              Twój wybór.
-            </span>
-          </h1>
+              <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-blue-400/80">
+                Daily Challenge
+              </p>
 
-          <p className="mx-auto mt-5 max-w-lg text-sm leading-6 text-zinc-500 sm:text-base">
-            Cześć{" "}
-            <span className="font-semibold text-zinc-200">
-              {currentParticipant.name}
-            </span>
-            . Każdy dzień to kolejny krok.
-          </p>
+              <div className="h-1.5 w-1.5 rounded-full bg-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.8)]" />
+            </div>
+
+            <h1 className="text-4xl font-black tracking-[-0.04em] sm:text-6xl">
+              Twój dzień.
+              <br />
+
+              <span className="bg-gradient-to-r from-white via-blue-100 to-blue-500 bg-clip-text text-transparent">
+                Twój wybór.
+              </span>
+            </h1>
+
+            <p className="mx-auto mt-5 max-w-lg text-sm leading-6 text-zinc-500 sm:text-base">
+              Cześć{" "}
+              <span className="font-semibold text-zinc-200">
+                {currentParticipant.name}
+              </span>
+              . Każdy dzień to kolejny krok.
+            </p>
+          </div>
         </header>
 
         {/* ================================================= */}
-        {/* SCORE - NA SAMEJ GÓRZE */}
+        {/* SCORE */}
         {/* ================================================= */}
 
         <section className="mb-14">
@@ -1341,6 +1606,34 @@ export default function Home() {
             description="Twój dzisiejszy wybór ma wpływ na wynik."
           />
 
+          {selected !== null && (
+            <div className="mb-5 flex flex-col items-center justify-between gap-4 rounded-2xl border border-blue-500/10 bg-blue-500/[0.04] p-4 sm:flex-row">
+              <div>
+                <p className="text-sm font-semibold text-zinc-200">
+                  Dzisiejszy wybór:{" "}
+                  <span className="text-blue-300">
+                    {todayChoiceEmoji}{" "}
+                    {todayChoiceLabel}
+                  </span>
+                </p>
+
+                <p className="mt-1 text-xs text-zinc-500">
+                  Możesz go cofnąć i wybrać inną opcję.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={
+                  undoTodayChoice
+                }
+                className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-5 py-3 text-sm font-bold text-zinc-200 transition hover:bg-white/[0.08] hover:text-white sm:w-auto"
+              >
+                ↩ Cofnij wybór
+              </button>
+            </div>
+          )}
+
           <div className="grid gap-4 md:grid-cols-3">
             {options.map((option) => {
               const isSelected =
@@ -1351,12 +1644,16 @@ export default function Home() {
                 option.points === 0 &&
                 myRestCount >= 2;
 
+              const choiceAlreadyMade =
+                selected !== null;
+
               return (
                 <div
                   key={option.title}
                   className={`animated-choice ${
-                    restLimitReached
-                      ? "opacity-40"
+                    restLimitReached ||
+                    choiceAlreadyMade
+                      ? "opacity-50"
                       : ""
                   }`}
                 >
@@ -1368,14 +1665,16 @@ export default function Home() {
                       )
                     }
                     disabled={
-                      restLimitReached
+                      restLimitReached ||
+                      choiceAlreadyMade
                     }
                     className={`group relative min-h-[250px] overflow-hidden p-7 text-left transition-all duration-300 ${
                       isSelected
                         ? "bg-blue-500/[0.09] shadow-[inset_0_0_35px_rgba(59,130,246,0.04)]"
                         : "bg-[#0b0e14] hover:bg-[#0d1118]"
                     } ${
-                      restLimitReached
+                      restLimitReached ||
+                      choiceAlreadyMade
                         ? "cursor-not-allowed"
                         : ""
                     }`}
@@ -1403,6 +1702,9 @@ export default function Home() {
                         <p className="mt-3 max-w-[230px] text-sm leading-6 text-zinc-500">
                           {restLimitReached
                             ? "Limit 2 Rest dayów wykorzystany"
+                            : choiceAlreadyMade &&
+                              !isSelected
+                            ? "Najpierw cofnij dzisiejszy wybór"
                             : option.description}
                         </p>
                       </div>
@@ -1445,7 +1747,7 @@ export default function Home() {
         <div className="grid items-start gap-6 xl:grid-cols-3">
 
           {/* ================================================= */}
-          {/* TWOJE STATYSTYKI */}
+          {/* STATYSTYKI */}
           {/* ================================================= */}
 
           <section>
@@ -1678,7 +1980,7 @@ export default function Home() {
           </section>
 
           {/* ================================================= */}
-          {/* HISTORIA AKCJI */}
+          {/* HISTORIA */}
           {/* ================================================= */}
 
           <section>
