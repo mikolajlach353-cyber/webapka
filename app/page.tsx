@@ -1,0 +1,1800 @@
+"use client";
+
+import { useEffect, useState, type ReactNode } from "react";
+import { supabase } from "@/lib/supabase";
+
+type Participant = {
+  id: number;
+  name: string;
+  score: number;
+  user_id: string;
+};
+
+type RestCounts = {
+  [participantId: number]: number;
+};
+
+type Activity = {
+  id: number;
+  participant_id: number;
+  choice: string;
+  choice_date: string;
+  created_at: string;
+};
+
+const options = [
+  {
+    points: 1,
+    title: "+1 punkt",
+    description: "Zrobiłem dzisiaj krok do przodu",
+    emoji: "🔥",
+  },
+  {
+    points: -2,
+    title: "-2 punkty",
+    description: "Dzisiaj nie poszło zgodnie z planem",
+    emoji: "📉",
+  },
+  {
+    points: 0,
+    title: "Rest day",
+    description: "Dzisiaj odpoczywam",
+    emoji: "😴",
+  },
+];
+
+function getWeekDates() {
+  const now = new Date();
+
+  const day = now.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + diff);
+
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  const formatDate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+  };
+
+  return {
+    monday: formatDate(monday),
+    sunday: formatDate(sunday),
+  };
+}
+
+function getChoiceInfo(choice: string) {
+  if (choice === "plus1") {
+    return {
+      emoji: "🔥",
+      label: "+1 punkt",
+    };
+  }
+
+  if (choice === "minus2") {
+    return {
+      emoji: "📉",
+      label: "-2 punkty",
+    };
+  }
+
+  if (choice === "rest") {
+    return {
+      emoji: "😴",
+      label: "Rest day",
+    };
+  }
+
+  return {
+    emoji: "❓",
+    label: choice,
+  };
+}
+
+function formatActivityDate(dateString: string) {
+  const date = new Date(dateString);
+
+  return new Intl.DateTimeFormat("pl-PL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getTodayDate() {
+  return formatLocalDate(new Date());
+}
+
+// =========================================================
+// STREAK CALCULATION
+// =========================================================
+
+function calculateStreaks(activities: Activity[]) {
+  const uniqueDates = Array.from(
+    new Set(activities.map((activity) => activity.choice_date))
+  ).sort((a, b) => a.localeCompare(b));
+
+  if (uniqueDates.length === 0) {
+    return {
+      current: 0,
+      record: 0,
+    };
+  }
+
+  let record = 1;
+  let currentSequence = 1;
+
+  for (let i = 1; i < uniqueDates.length; i++) {
+    const previous = new Date(`${uniqueDates[i - 1]}T12:00:00`);
+    const current = new Date(`${uniqueDates[i]}T12:00:00`);
+
+    const difference =
+      (current.getTime() - previous.getTime()) /
+      (1000 * 60 * 60 * 24);
+
+    if (difference === 1) {
+      currentSequence += 1;
+      record = Math.max(record, currentSequence);
+    } else {
+      currentSequence = 1;
+    }
+  }
+
+  const today = new Date(`${getTodayDate()}T12:00:00`);
+
+  const lastDate = new Date(
+    `${uniqueDates[uniqueDates.length - 1]}T12:00:00`
+  );
+
+  const daysSinceLastActivity =
+    Math.round(
+      (today.getTime() - lastDate.getTime()) /
+        (1000 * 60 * 60 * 24)
+    );
+
+  if (daysSinceLastActivity > 1) {
+    return {
+      current: 0,
+      record,
+    };
+  }
+
+  let current = 1;
+
+  for (let i = uniqueDates.length - 1; i > 0; i--) {
+    const currentDate = new Date(
+      `${uniqueDates[i]}T12:00:00`
+    );
+
+    const previousDate = new Date(
+      `${uniqueDates[i - 1]}T12:00:00`
+    );
+
+    const difference =
+      (currentDate.getTime() -
+        previousDate.getTime()) /
+      (1000 * 60 * 60 * 24);
+
+    if (difference === 1) {
+      current += 1;
+    } else {
+      break;
+    }
+  }
+
+  return {
+    current,
+    record,
+  };
+}
+
+// =========================================================
+// ANIMATED FRAME
+// =========================================================
+
+function AnimatedFrame({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`animated-border ${className}`}>
+      <div className="animated-border-inner">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// =========================================================
+// SCORE CIRCLE
+// =========================================================
+
+function ScoreCircle({ score }: { score: number }) {
+  const progress = Math.min(100, Math.max(0, score));
+
+  const radius = 82;
+  const circumference = 2 * Math.PI * radius;
+
+  const offset =
+    circumference -
+    (progress / 100) * circumference;
+
+  return (
+    <div className="relative mx-auto h-56 w-56 sm:h-64 sm:w-64">
+      <div className="absolute inset-6 rounded-full bg-blue-500/10 blur-3xl" />
+
+      <svg
+        className="relative h-full w-full -rotate-90"
+        viewBox="0 0 200 200"
+      >
+        <circle
+          cx="100"
+          cy="100"
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="5"
+          className="text-zinc-800/80"
+        />
+
+        <circle
+          cx="100"
+          cy="100"
+          r={radius}
+          fill="none"
+          stroke="url(#scoreGradient)"
+          strokeWidth="6"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          className="transition-all duration-1000 ease-out"
+          style={{
+            filter:
+              "drop-shadow(0 0 8px rgba(59,130,246,0.45))",
+          }}
+        />
+
+        <defs>
+          <linearGradient
+            id="scoreGradient"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="100%"
+          >
+            <stop
+              offset="0%"
+              stopColor="#ffffff"
+            />
+
+            <stop
+              offset="45%"
+              stopColor="#bfdbfe"
+            />
+
+            <stop
+              offset="100%"
+              stopColor="#3b82f6"
+            />
+          </linearGradient>
+        </defs>
+      </svg>
+
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-7xl font-black tracking-[-0.06em] text-white sm:text-8xl">
+          {score}
+        </span>
+
+        <span className="mt-1 text-[10px] font-bold uppercase tracking-[0.3em] text-zinc-500">
+          punktów
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// =========================================================
+// SECTION HEADER
+// =========================================================
+
+function SectionHeader({
+  eyebrow,
+  title,
+  description,
+  right,
+}: {
+  eyebrow?: string;
+  title: string;
+  description?: string;
+  right?: ReactNode;
+}) {
+  return (
+    <div className="mb-7 flex items-end justify-between gap-4">
+      <div>
+        {eyebrow && (
+          <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.25em] text-blue-400/80">
+            {eyebrow}
+          </p>
+        )}
+
+        <h2 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+          {title}
+        </h2>
+
+        {description && (
+          <p className="mt-2 text-sm text-zinc-500">
+            {description}
+          </p>
+        )}
+      </div>
+
+      {right}
+    </div>
+  );
+}
+
+// =========================================================
+// STAT ITEM
+// =========================================================
+
+function StatItem({
+  label,
+  value,
+  accent = false,
+  icon,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+  icon: string;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <div
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg ${
+          accent
+            ? "bg-blue-500/10 shadow-[0_0_20px_rgba(59,130,246,0.12)]"
+            : "bg-white/[0.04]"
+        }`}
+      >
+        {icon}
+      </div>
+
+      <div className="min-w-0 text-left">
+        <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-zinc-600">
+          {label}
+        </p>
+
+        <p
+          className={`mt-0.5 truncate text-sm font-bold ${
+            accent
+              ? "text-blue-300"
+              : "text-zinc-200"
+          }`}
+        >
+          {value}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// =========================================================
+// MAIN
+// =========================================================
+
+export default function Home() {
+  const [participants, setParticipants] =
+    useState<Participant[]>([]);
+
+  const [currentParticipant, setCurrentParticipant] =
+    useState<Participant | null>(null);
+
+  const [restCounts, setRestCounts] =
+    useState<RestCounts>({});
+
+  const [activities, setActivities] =
+    useState<Activity[]>([]);
+
+  const [streakActivities, setStreakActivities] =
+    useState<Activity[]>([]);
+
+  const [selected, setSelected] =
+    useState<number | null>(null);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [activityLoading, setActivityLoading] =
+    useState(true);
+
+  const [joining, setJoining] =
+    useState(false);
+
+  const [name, setName] =
+    useState("");
+
+  const [error, setError] =
+    useState<string | null>(null);
+
+  // =========================================================
+  // LOGOWANIE ANONIMOWE
+  // =========================================================
+
+  async function getCurrentUser() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (session?.user) {
+      return session.user;
+    }
+
+    const {
+      data,
+      error: signInError,
+    } = await supabase.auth.signInAnonymously();
+
+    if (signInError) {
+      console.error(
+        "Błąd anonimowego logowania:",
+        signInError
+      );
+
+      throw signInError;
+    }
+
+    return data.user;
+  }
+
+  // =========================================================
+  // SPRAWDZENIE UCZESTNIKA
+  // =========================================================
+
+  async function loadCurrentParticipant() {
+    const user = await getCurrentUser();
+
+    if (!user) {
+      throw new Error(
+        "Nie udało się uzyskać użytkownika."
+      );
+    }
+
+    const {
+      data,
+      error: participantError,
+    } = await supabase
+      .from("participants")
+      .select("*")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (participantError) {
+      console.error(
+        "Błąd sprawdzania uczestnika:",
+        participantError
+      );
+
+      throw participantError;
+    }
+
+    setCurrentParticipant(data ?? null);
+
+    return data ?? null;
+  }
+
+  // =========================================================
+  // POBIERANIE DANYCH
+  // =========================================================
+
+  async function loadData() {
+    setLoading(true);
+    setActivityLoading(true);
+    setError(null);
+
+    try {
+      const current =
+        await loadCurrentParticipant();
+
+      if (!current) {
+        setParticipants([]);
+        setRestCounts({});
+        setActivities([]);
+        setStreakActivities([]);
+        setSelected(null);
+
+        setLoading(false);
+        setActivityLoading(false);
+
+        return;
+      }
+
+      // =====================================================
+      // RANKING
+      // =====================================================
+
+      const {
+        data: participantsData,
+        error: participantsError,
+      } = await supabase
+        .from("participants")
+        .select("*")
+        .order("score", {
+          ascending: false,
+        });
+
+      if (participantsError) {
+        console.error(
+          "Błąd pobierania uczestników:",
+          participantsError
+        );
+
+        throw participantsError;
+      }
+
+      const loadedParticipants =
+        participantsData ?? [];
+
+      setParticipants(
+        loadedParticipants
+      );
+
+      // =====================================================
+      // DATY TYGODNIA
+      // =====================================================
+
+      const {
+        monday,
+        sunday,
+      } = getWeekDates();
+
+      // =====================================================
+      // REST DAY
+      // =====================================================
+
+      const {
+        data: restData,
+        error: restError,
+      } = await supabase
+        .from("daily_choices")
+        .select(
+          "participant_id, choice_date"
+        )
+        .eq("choice", "rest")
+        .gte(
+          "choice_date",
+          monday
+        )
+        .lte(
+          "choice_date",
+          sunday
+        );
+
+      if (restError) {
+        console.error(
+          "Błąd pobierania Rest day:",
+          restError
+        );
+      }
+
+      const counts: RestCounts = {};
+
+      loadedParticipants.forEach(
+        (participant) => {
+          counts[participant.id] = 0;
+        }
+      );
+
+      (restData ?? []).forEach(
+        (rest) => {
+          if (
+            counts[
+              rest.participant_id
+            ] !== undefined
+          ) {
+            counts[
+              rest.participant_id
+            ] += 1;
+          }
+        }
+      );
+
+      setRestCounts(counts);
+
+      // =====================================================
+      // HISTORIA - 10 OSTATNICH
+      // =====================================================
+
+      const {
+        data: activitiesData,
+        error: activitiesError,
+      } = await supabase
+        .from("daily_choices")
+        .select("*")
+        .order("created_at", {
+          ascending: false,
+        })
+        .limit(10);
+
+      if (activitiesError) {
+        console.error(
+          "Błąd pobierania historii:",
+          activitiesError
+        );
+
+        setActivities([]);
+      } else {
+        setActivities(
+          activitiesData ?? []
+        );
+      }
+
+      // =====================================================
+      // PEŁNA HISTORIA AKTUALNEGO UCZESTNIKA
+      // =====================================================
+
+      const {
+        data: currentActivitiesData,
+        error: currentActivitiesError,
+      } = await supabase
+        .from("daily_choices")
+        .select("*")
+        .eq(
+          "participant_id",
+          current.id
+        )
+        .order("created_at", {
+          ascending: false,
+        });
+
+      if (currentActivitiesError) {
+        console.error(
+          "Błąd pobierania danych streaku:",
+          currentActivitiesError
+        );
+
+        setStreakActivities([]);
+      } else {
+        const currentActivities =
+          currentActivitiesData ?? [];
+
+        setStreakActivities(
+          currentActivities
+        );
+
+        const today =
+          getTodayDate();
+
+        const todayActivity =
+          currentActivities.find(
+            (activity) =>
+              activity.choice_date ===
+              today
+          );
+
+        if (todayActivity) {
+          if (
+            todayActivity.choice ===
+            "plus1"
+          ) {
+            setSelected(1);
+          } else if (
+            todayActivity.choice ===
+            "minus2"
+          ) {
+            setSelected(-2);
+          } else if (
+            todayActivity.choice ===
+            "rest"
+          ) {
+            setSelected(0);
+          }
+        } else {
+          setSelected(null);
+        }
+      }
+    } catch (err) {
+      console.error(
+        "Błąd ładowania aplikacji:",
+        err
+      );
+
+      setError(
+        "Nie udało się połączyć z aplikacją."
+      );
+    } finally {
+      setLoading(false);
+      setActivityLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // =========================================================
+  // DOŁĄCZENIE DO RYWALIZACJI
+  // =========================================================
+
+  async function joinCompetition() {
+    const trimmedName =
+      name.trim();
+
+    if (!trimmedName) {
+      alert("Wpisz swój nick.");
+      return;
+    }
+
+    if (trimmedName.length < 2) {
+      alert(
+        "Nick musi mieć przynajmniej 2 znaki."
+      );
+      return;
+    }
+
+    if (trimmedName.length > 30) {
+      alert(
+        "Nick może mieć maksymalnie 30 znaków."
+      );
+      return;
+    }
+
+    setJoining(true);
+    setError(null);
+
+    try {
+      const user =
+        await getCurrentUser();
+
+      if (!user) {
+        throw new Error(
+          "Nie udało się uzyskać użytkownika."
+        );
+      }
+
+      const {
+        data: existingParticipant,
+        error: existingError,
+      } = await supabase
+        .from("participants")
+        .select("*")
+        .eq(
+          "user_id",
+          user.id
+        )
+        .maybeSingle();
+
+      if (existingError) {
+        throw existingError;
+      }
+
+      if (existingParticipant) {
+        setCurrentParticipant(
+          existingParticipant
+        );
+
+        await loadData();
+
+        return;
+      }
+
+      const {
+        data: newParticipant,
+        error: insertError,
+      } = await supabase
+        .from("participants")
+        .insert({
+          user_id: user.id,
+          name: trimmedName,
+          score: 0,
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error(
+          "Błąd tworzenia uczestnika:",
+          insertError
+        );
+
+        throw insertError;
+      }
+
+      setCurrentParticipant(
+        newParticipant
+      );
+
+      setName("");
+
+      await loadData();
+    } catch (err: any) {
+      console.error(
+        "Błąd dołączania:",
+        err
+      );
+
+      setError(
+        err?.message ||
+          "Nie udało się dołączyć do rywalizacji."
+      );
+    } finally {
+      setJoining(false);
+    }
+  }
+
+  // =========================================================
+  // WYBÓR OPCJI
+  // =========================================================
+
+  async function chooseOption(
+    points: number
+  ) {
+    if (!currentParticipant) {
+      alert(
+        "Najpierw dołącz do rywalizacji."
+      );
+      return;
+    }
+
+    setSelected(points);
+
+    const participant =
+      currentParticipant;
+
+    // =======================================================
+    // REST DAY
+    // =======================================================
+
+    if (points === 0) {
+      const currentRestCount =
+        restCounts[
+          participant.id
+        ] ?? 0;
+
+      if (currentRestCount >= 2) {
+        alert(
+          "W tym tygodniu wykorzystałeś już 2 Rest day."
+        );
+
+        setSelected(null);
+        return;
+      }
+
+      const today =
+        new Date()
+          .toISOString()
+          .split("T")[0];
+
+      const {
+        data: existingRest,
+        error: checkError,
+      } = await supabase
+        .from("daily_choices")
+        .select("id")
+        .eq(
+          "participant_id",
+          participant.id
+        )
+        .eq(
+          "choice",
+          "rest"
+        )
+        .eq(
+          "choice_date",
+          today
+        )
+        .maybeSingle();
+
+      if (checkError) {
+        console.error(
+          "Błąd sprawdzania Rest day:",
+          checkError
+        );
+
+        setSelected(null);
+        return;
+      }
+
+      if (existingRest) {
+        alert(
+          "Rest day został już wybrany dzisiaj."
+        );
+
+        return;
+      }
+
+      const {
+        error: insertError,
+      } = await supabase
+        .from("daily_choices")
+        .insert({
+          participant_id:
+            participant.id,
+          choice: "rest",
+          choice_date: today,
+        });
+
+      if (insertError) {
+        console.error(
+          "Błąd zapisywania Rest day:",
+          {
+            message:
+              insertError.message,
+            details:
+              insertError.details,
+            hint:
+              insertError.hint,
+            code:
+              insertError.code,
+          }
+        );
+
+        alert(
+          `Błąd Rest day: ${
+            insertError.message ||
+            "Nieznany błąd"
+          }`
+        );
+
+        setSelected(null);
+        return;
+      }
+
+      await loadData();
+
+      return;
+    }
+
+    // =======================================================
+    // +1 / -2
+    // =======================================================
+
+    const newScore =
+      participant.score +
+      points;
+
+    const {
+      error: updateError,
+    } = await supabase
+      .from("participants")
+      .update({
+        score: newScore,
+      })
+      .eq(
+        "id",
+        participant.id
+      );
+
+    if (updateError) {
+      console.error(
+        "Błąd aktualizacji punktów:",
+        updateError
+      );
+
+      alert(
+        `Nie udało się zmienić punktów: ${updateError.message}`
+      );
+
+      setSelected(null);
+      return;
+    }
+
+    const choice =
+      points === 1
+        ? "plus1"
+        : "minus2";
+
+    const {
+      error: insertActivityError,
+    } = await supabase
+      .from("daily_choices")
+      .insert({
+        participant_id:
+          participant.id,
+        choice,
+        choice_date:
+          new Date()
+            .toISOString()
+            .split("T")[0],
+      });
+
+    if (insertActivityError) {
+      console.error(
+        "Punkty zostały zmienione, ale nie udało się zapisać historii:",
+        insertActivityError
+      );
+    }
+
+    await loadData();
+  }
+
+  // =========================================================
+  // STANY
+  // =========================================================
+
+  if (
+    loading &&
+    !currentParticipant
+  ) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#07090d] px-4 text-white">
+        <div className="text-center">
+          <div className="animate-pulse text-5xl">
+            🔥
+          </div>
+
+          <p className="mt-5 text-sm text-zinc-500">
+            Przygotowywanie Daily Challenge...
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  // =========================================================
+  // EKRAN DOŁĄCZANIA
+  // =========================================================
+
+  if (!currentParticipant) {
+    return (
+      <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#07090d] px-4 text-white">
+        <div className="pointer-events-none absolute left-1/2 top-1/3 h-96 w-96 -translate-x-1/2 rounded-full bg-blue-600/10 blur-[120px]" />
+
+        <div className="relative w-full max-w-md">
+          <div className="mb-8 text-center">
+            <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-2xl shadow-[0_0_40px_rgba(59,130,246,0.15)]">
+              🔥
+            </div>
+
+            <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.3em] text-blue-400">
+              Daily Challenge
+            </p>
+
+            <h1 className="text-4xl font-black tracking-tight sm:text-5xl">
+              Dołącz do rywalizacji
+            </h1>
+
+            <p className="mx-auto mt-4 max-w-sm text-sm leading-6 text-zinc-500">
+              Wybierz swój nick i zacznij
+              budować swoją serię.
+            </p>
+          </div>
+
+          <AnimatedFrame>
+            <div className="rounded-[26px] bg-zinc-900/80 p-6">
+              <label
+                htmlFor="participant-name"
+                className="mb-2 block text-xs font-semibold uppercase tracking-wider text-zinc-500"
+              >
+                Twój nick
+              </label>
+
+              <input
+                id="participant-name"
+                type="text"
+                value={name}
+                onChange={(event) =>
+                  setName(
+                    event.target.value
+                  )
+                }
+                onKeyDown={(event) => {
+                  if (
+                    event.key ===
+                    "Enter"
+                  ) {
+                    joinCompetition();
+                  }
+                }}
+                placeholder="np. Kuba"
+                maxLength={30}
+                disabled={joining}
+                className="w-full rounded-2xl border border-white/[0.06] bg-black/30 px-4 py-4 text-white outline-none transition placeholder:text-zinc-700 focus:border-blue-500/60 focus:bg-blue-500/[0.03] disabled:opacity-50"
+                autoFocus
+              />
+
+              {error && (
+                <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-300">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={
+                  joinCompetition
+                }
+                disabled={
+                  joining ||
+                  !name.trim()
+                }
+                className="mt-4 w-full rounded-2xl bg-white px-4 py-4 font-bold text-zinc-950 transition-all duration-300 hover:bg-blue-50 hover:shadow-[0_0_30px_rgba(59,130,246,0.18)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {joining
+                  ? "Dołączanie..."
+                  : "Rozpocznij"}
+              </button>
+            </div>
+          </AnimatedFrame>
+        </div>
+      </main>
+    );
+  }
+
+  // =========================================================
+  // DANE AKTUALNEGO UCZESTNIKA
+  // =========================================================
+
+  const myScore =
+    currentParticipant.score;
+
+  const myRestCount =
+    restCounts[
+      currentParticipant.id
+    ] ?? 0;
+
+  const myRankingPosition =
+    participants.findIndex(
+      (participant) =>
+        participant.id ===
+        currentParticipant.id
+    ) + 1;
+
+  const {
+    current: currentStreak,
+    record: recordStreak,
+  } = calculateStreaks(
+    streakActivities
+  );
+
+  const todayChoiceLabel =
+    selected === null
+      ? "Brak wyboru"
+      : selected === 1
+      ? "+1 punkt"
+      : selected === -2
+      ? "-2 punkty"
+      : "Rest day";
+
+  const todayChoiceEmoji =
+    selected === null
+      ? "—"
+      : selected === 1
+      ? "🔥"
+      : selected === -2
+      ? "📉"
+      : "😴";
+
+  // =========================================================
+  // GŁÓWNA APLIKACJA
+  // =========================================================
+
+  return (
+    <main className="relative min-h-screen overflow-hidden bg-[#07090d] px-4 py-8 text-white sm:py-12">
+      <style jsx global>{`
+        @keyframes borderFlow {
+          0% {
+            background-position: 0% 50%;
+          }
+
+          50% {
+            background-position: 100% 50%;
+          }
+
+          100% {
+            background-position: 0% 50%;
+          }
+        }
+
+        .animated-border {
+          position: relative;
+          padding: 1px;
+          border-radius: 31px;
+          background: linear-gradient(
+            120deg,
+            rgba(59, 130, 246, 0.18),
+            rgba(96, 165, 250, 0.55),
+            rgba(139, 92, 246, 0.28),
+            rgba(34, 211, 238, 0.38),
+            rgba(59, 130, 246, 0.18)
+          );
+          background-size: 300% 300%;
+          animation: borderFlow 8s ease infinite;
+          box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.015),
+            0 0 35px rgba(59, 130, 246, 0.035);
+        }
+
+        .animated-border-inner {
+          height: 100%;
+          border-radius: 30px;
+          background: rgba(10, 12, 17, 0.94);
+        }
+
+        .animated-choice {
+          position: relative;
+          padding: 1px;
+          border-radius: 31px;
+          background: linear-gradient(
+            120deg,
+            rgba(59, 130, 246, 0.12),
+            rgba(96, 165, 250, 0.45),
+            rgba(139, 92, 246, 0.2),
+            rgba(34, 211, 238, 0.3),
+            rgba(59, 130, 246, 0.12)
+          );
+          background-size: 300% 300%;
+          animation: borderFlow 9s ease infinite;
+          transition:
+            transform 300ms ease,
+            box-shadow 300ms ease;
+        }
+
+        .animated-choice:hover {
+          transform: translateY(-4px);
+          box-shadow:
+            0 15px 50px rgba(0, 0, 0, 0.28),
+            0 0 35px rgba(59, 130, 246, 0.07);
+        }
+
+        .animated-choice > button {
+          width: 100%;
+          height: 100%;
+          border-radius: 30px;
+        }
+      `}</style>
+
+      <div className="pointer-events-none absolute left-1/2 top-0 h-[500px] w-[700px] -translate-x-1/2 rounded-full bg-blue-600/[0.035] blur-[140px]" />
+
+      <div className="relative mx-auto max-w-7xl">
+
+        {/* ================================================= */}
+        {/* HEADER */}
+        {/* ================================================= */}
+
+        <header className="mb-10 text-center sm:mb-14">
+          <div className="mb-4 flex items-center justify-center gap-2">
+            <div className="h-1.5 w-1.5 rounded-full bg-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.8)]" />
+
+            <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-blue-400/80">
+              Daily Challenge
+            </p>
+
+            <div className="h-1.5 w-1.5 rounded-full bg-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.8)]" />
+          </div>
+
+          <h1 className="text-4xl font-black tracking-[-0.04em] sm:text-6xl">
+            Twój dzień.
+            <br />
+
+            <span className="bg-gradient-to-r from-white via-blue-100 to-blue-500 bg-clip-text text-transparent">
+              Twój wybór.
+            </span>
+          </h1>
+
+          <p className="mx-auto mt-5 max-w-lg text-sm leading-6 text-zinc-500 sm:text-base">
+            Cześć{" "}
+            <span className="font-semibold text-zinc-200">
+              {currentParticipant.name}
+            </span>
+            . Każdy dzień to kolejny krok.
+          </p>
+        </header>
+
+        {/* ================================================= */}
+        {/* SCORE - NA SAMEJ GÓRZE */}
+        {/* ================================================= */}
+
+        <section className="mb-14">
+          <AnimatedFrame>
+            <div className="relative overflow-hidden rounded-[30px] px-5 py-8 sm:px-10 sm:py-10">
+              <div className="pointer-events-none absolute left-1/2 top-0 h-72 w-72 -translate-x-1/2 rounded-full bg-blue-500/[0.07] blur-[100px]" />
+
+              <div className="relative text-center">
+                <div className="mb-2 flex items-center justify-center gap-2">
+                  <span className="h-px w-8 bg-gradient-to-r from-transparent to-blue-500/50" />
+
+                  <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-zinc-500">
+                    Obecna ilość punktów
+                  </p>
+
+                  <span className="h-px w-8 bg-gradient-to-l from-transparent to-blue-500/50" />
+                </div>
+
+                <div className="mt-4">
+                  <ScoreCircle
+                    score={myScore}
+                  />
+                </div>
+              </div>
+            </div>
+          </AnimatedFrame>
+        </section>
+
+        {/* ================================================= */}
+        {/* TODAY'S CHOICE */}
+        {/* ================================================= */}
+
+        <section className="mb-14">
+          <SectionHeader
+            eyebrow="Dzisiaj"
+            title="Co wybierasz?"
+            description="Twój dzisiejszy wybór ma wpływ na wynik."
+          />
+
+          <div className="grid gap-4 md:grid-cols-3">
+            {options.map((option) => {
+              const isSelected =
+                selected ===
+                option.points;
+
+              const restLimitReached =
+                option.points === 0 &&
+                myRestCount >= 2;
+
+              return (
+                <div
+                  key={option.title}
+                  className={`animated-choice ${
+                    restLimitReached
+                      ? "opacity-40"
+                      : ""
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      chooseOption(
+                        option.points
+                      )
+                    }
+                    disabled={
+                      restLimitReached
+                    }
+                    className={`group relative min-h-[250px] overflow-hidden p-7 text-left transition-all duration-300 ${
+                      isSelected
+                        ? "bg-blue-500/[0.09] shadow-[inset_0_0_35px_rgba(59,130,246,0.04)]"
+                        : "bg-[#0b0e14] hover:bg-[#0d1118]"
+                    } ${
+                      restLimitReached
+                        ? "cursor-not-allowed"
+                        : ""
+                    }`}
+                  >
+                    {isSelected && (
+                      <div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-blue-500/10 blur-[70px]" />
+                    )}
+
+                    <div className="relative flex h-full flex-col">
+                      <div className="mb-auto">
+                        <div
+                          className={`mb-8 flex h-14 w-14 items-center justify-center rounded-2xl text-3xl transition-transform duration-300 ${
+                            isSelected
+                              ? "scale-110 bg-blue-500/15"
+                              : "bg-white/[0.04] group-hover:scale-105"
+                          }`}
+                        >
+                          {option.emoji}
+                        </div>
+
+                        <h3 className="text-2xl font-bold tracking-tight">
+                          {option.title}
+                        </h3>
+
+                        <p className="mt-3 max-w-[230px] text-sm leading-6 text-zinc-500">
+                          {restLimitReached
+                            ? "Limit 2 Rest dayów wykorzystany"
+                            : option.description}
+                        </p>
+                      </div>
+
+                      <div className="mt-8 flex items-center justify-between">
+                        <span
+                          className={`text-xs font-semibold uppercase tracking-wider ${
+                            isSelected
+                              ? "text-blue-300"
+                              : "text-zinc-700 group-hover:text-zinc-500"
+                          }`}
+                        >
+                          {isSelected
+                            ? "Wybrano"
+                            : "Wybierz"}
+                        </span>
+
+                        <span
+                          className={`flex h-9 w-9 items-center justify-center rounded-full transition-all ${
+                            isSelected
+                              ? "bg-blue-500 text-white shadow-[0_0_20px_rgba(59,130,246,0.35)]"
+                              : "bg-white/[0.04] text-zinc-600 group-hover:bg-blue-500/10 group-hover:text-blue-400"
+                          }`}
+                        >
+                          →
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* ================================================= */}
+        {/* THREE COLUMNS */}
+        {/* ================================================= */}
+
+        <div className="grid items-start gap-6 xl:grid-cols-3">
+
+          {/* ================================================= */}
+          {/* TWOJE STATYSTYKI */}
+          {/* ================================================= */}
+
+          <section>
+            <SectionHeader
+              eyebrow="Twój profil"
+              title="Statystyki"
+              description="Twój aktualny status."
+            />
+
+            <AnimatedFrame className="h-full">
+              <div className="h-full p-6 sm:p-7">
+                <div className="mb-6 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-400/70">
+                      Twoje statystyki
+                    </p>
+
+                    <p className="mt-1 text-sm font-semibold text-zinc-300">
+                      Aktualny status
+                    </p>
+                  </div>
+
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-sm shadow-[0_0_25px_rgba(59,130,246,0.08)]">
+                    ✦
+                  </div>
+                </div>
+
+                <div className="grid gap-5">
+                  <StatItem
+                    label="Miejsce w tabeli"
+                    value={
+                      myRankingPosition > 0
+                        ? `#${myRankingPosition}`
+                        : "—"
+                    }
+                    icon="🏆"
+                    accent
+                  />
+
+                  <StatItem
+                    label="Obecny streak"
+                    value={`${currentStreak} dni`}
+                    icon="🔥"
+                    accent
+                  />
+
+                  <StatItem
+                    label="Rekordowy streak"
+                    value={`${recordStreak} dni`}
+                    icon="⚡"
+                  />
+
+                  <StatItem
+                    label="Dzisiejszy wybór"
+                    value={`${todayChoiceEmoji} ${todayChoiceLabel}`}
+                    icon="🎯"
+                  />
+                </div>
+
+                <div className="mt-7 flex items-center justify-between border-t border-white/[0.05] pt-5">
+                  <span className="text-xs text-zinc-600">
+                    Rest day w tym tygodniu
+                  </span>
+
+                  <span className="rounded-full bg-white/[0.04] px-3 py-1 text-xs font-bold text-zinc-300">
+                    {myRestCount}/2
+                  </span>
+                </div>
+              </div>
+            </AnimatedFrame>
+          </section>
+
+          {/* ================================================= */}
+          {/* RANKING */}
+          {/* ================================================= */}
+
+          <section>
+            <SectionHeader
+              eyebrow="Rywalizacja"
+              title="Ranking"
+              description="Wyniki uczestników."
+              right={
+                <div className="hidden rounded-full bg-white/[0.02] px-3 py-2 text-xs text-zinc-600 sm:block">
+                  {participants.length}
+                </div>
+              }
+            />
+
+            <AnimatedFrame>
+              <div className="overflow-hidden">
+                <div className="grid grid-cols-[40px_1fr_75px_50px] border-b border-white/[0.05] px-4 py-4 text-[9px] font-bold uppercase tracking-wider text-zinc-600 sm:grid-cols-[45px_1fr_85px_55px] sm:px-5">
+                  <span>#</span>
+
+                  <span>
+                    Uczestnik
+                  </span>
+
+                  <span className="text-right">
+                    Punkty
+                  </span>
+
+                  <span className="text-right">
+                    Rest
+                  </span>
+                </div>
+
+                <div className="max-h-[470px] overflow-y-auto">
+                  {loading && (
+                    <div className="px-5 py-10 text-center text-sm text-zinc-500">
+                      Ładowanie rankingu...
+                    </div>
+                  )}
+
+                  {!loading &&
+                    participants.length === 0 && (
+                      <div className="px-5 py-10 text-center text-sm text-zinc-500">
+                        Brak uczestników.
+                      </div>
+                    )}
+
+                  {!loading &&
+                    participants.map(
+                      (
+                        participant,
+                        index
+                      ) => {
+                        const participantRestCount =
+                          restCounts[
+                            participant.id
+                          ] ?? 0;
+
+                        const isMe =
+                          participant.id ===
+                          currentParticipant.id;
+
+                        return (
+                          <div
+                            key={
+                              participant.id
+                            }
+                            className={`group grid grid-cols-[40px_1fr_75px_50px] items-center px-4 py-4 transition-all sm:grid-cols-[45px_1fr_85px_55px] sm:px-5 ${
+                              index !==
+                              participants.length -
+                                1
+                                ? "border-b border-white/[0.04]"
+                                : ""
+                            } ${
+                              isMe
+                                ? "bg-blue-500/[0.06]"
+                                : "hover:bg-white/[0.025]"
+                            }`}
+                          >
+                            <div>
+                              {index < 3 ? (
+                                <span className="text-lg">
+                                  {index ===
+                                  0
+                                    ? "🥇"
+                                    : index ===
+                                      1
+                                    ? "🥈"
+                                    : "🥉"}
+                                </span>
+                              ) : (
+                                <span className="text-xs font-bold text-zinc-600">
+                                  {index +
+                                    1}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex min-w-0 items-center gap-2">
+                              <div
+                                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-[10px] font-bold ${
+                                  isMe
+                                    ? "bg-blue-500/15 text-blue-300"
+                                    : "bg-white/[0.04] text-zinc-500"
+                                }`}
+                              >
+                                {participant.name
+                                  .slice(
+                                    0,
+                                    1
+                                  )
+                                  .toUpperCase()}
+                              </div>
+
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold text-zinc-200">
+                                  {
+                                    participant.name
+                                  }
+
+                                  {isMe && (
+                                    <span className="ml-1 text-[8px] font-bold uppercase tracking-wider text-blue-400">
+                                      Ty
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="text-right">
+                              <span
+                                className={`text-sm font-bold ${
+                                  isMe
+                                    ? "text-blue-300"
+                                    : "text-zinc-300"
+                                }`}
+                              >
+                                {
+                                  participant.score
+                                }
+                              </span>
+                            </div>
+
+                            <div className="text-right text-[10px] font-semibold text-zinc-500">
+                              {
+                                participantRestCount
+                              }
+                              /2
+                            </div>
+                          </div>
+                        );
+                      }
+                    )}
+                </div>
+              </div>
+            </AnimatedFrame>
+          </section>
+
+          {/* ================================================= */}
+          {/* HISTORIA AKCJI */}
+          {/* ================================================= */}
+
+          <section>
+            <SectionHeader
+              eyebrow="Historia"
+              title="Akcje"
+              description="Najnowsze działania."
+              right={
+                <span className="rounded-full bg-white/[0.03] px-3 py-1.5 text-xs text-zinc-600">
+                  10
+                </span>
+              }
+            />
+
+            <AnimatedFrame>
+              <div className="relative overflow-hidden p-4 sm:p-5">
+                <div className="absolute bottom-5 left-[29px] top-5 w-px bg-gradient-to-b from-blue-500/30 via-white/[0.05] to-transparent" />
+
+                <div className="space-y-1">
+                  {activityLoading && (
+                    <div className="px-3 py-10 text-center text-sm text-zinc-500">
+                      Ładowanie historii...
+                    </div>
+                  )}
+
+                  {!activityLoading &&
+                    activities.length === 0 && (
+                      <div className="px-3 py-10 text-center text-sm text-zinc-500">
+                        Brak aktywności.
+                      </div>
+                    )}
+
+                  {!activityLoading &&
+                    activities.map(
+                      (activity) => {
+                        const participant =
+                          participants.find(
+                            (item) =>
+                              item.id ===
+                              activity.participant_id
+                          );
+
+                        const choiceInfo =
+                          getChoiceInfo(
+                            activity.choice
+                          );
+
+                        const isMe =
+                          activity.participant_id ===
+                          currentParticipant.id;
+
+                        return (
+                          <div
+                            key={activity.id}
+                            className="group relative flex items-center gap-3 rounded-2xl px-1 py-3 transition-all hover:bg-white/[0.025]"
+                          >
+                            <div
+                              className={`relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border text-lg transition-all duration-300 group-hover:scale-105 ${
+                                isMe
+                                  ? "border-blue-500/20 bg-blue-500/10"
+                                  : "border-white/[0.06] bg-zinc-900"
+                              }`}
+                            >
+                              {
+                                choiceInfo.emoji
+                              }
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                <span className="truncate text-sm font-semibold text-zinc-200">
+                                  {participant?.name ??
+                                    "Nieznany"}
+                                </span>
+
+                                {isMe && (
+                                  <span className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-blue-400">
+                                    Ty
+                                  </span>
+                                )}
+                              </div>
+
+                              <p className="mt-0.5 text-xs text-zinc-500">
+                                {
+                                  choiceInfo.label
+                                }
+                              </p>
+                            </div>
+
+                            <div className="hidden shrink-0 text-right text-[10px] text-zinc-700 2xl:block">
+                              {formatActivityDate(
+                                activity.created_at
+                              )}
+                            </div>
+
+                            <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-800 transition-colors group-hover:bg-blue-500" />
+                          </div>
+                        );
+                      }
+                    )}
+                </div>
+              </div>
+            </AnimatedFrame>
+          </section>
+        </div>
+
+        {/* ================================================= */}
+        {/* FOOTER */}
+        {/* ================================================= */}
+
+        <footer className="mt-16 pb-4 text-center">
+          <p className="text-[10px] font-medium uppercase tracking-[0.25em] text-zinc-700">
+            Daily Challenge
+          </p>
+        </footer>
+      </div>
+    </main>
+  );
+}
